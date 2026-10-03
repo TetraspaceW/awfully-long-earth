@@ -52,7 +52,7 @@ export function clearColorCache() { colorCache.clear(); }
 
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
-export function renderTile(world, x, y, snap, Y, mode) {
+export function renderTile(world, x, y, snap, Y, mode, focus = 0) {
   const geo = getGeo(x, y);
   const img = new ImageData(W, H);
   const d = img.data;
@@ -81,6 +81,8 @@ export function renderTile(world, x, y, snap, Y, mode) {
             const o = snap.owner[r];
             if (o) rgb = mix(rgb, polityRgb(world, o), 0.78);
             else rgb = mix(rgb, [150, 150, 145], snap.culture[r] ? 0.55 : 0.2);
+            // a selected nation stands out; everyone else fades back
+            if (focus && o !== focus) rgb = mix(rgb, [110, 112, 116], 0.6);
           } else if (mode === 'culture') {
             const c = snap.culture[r];
             rgb = c ? mix(rgb, cultureRgb(world, c), 0.8) : mix(rgb, [150, 150, 145], 0.3);

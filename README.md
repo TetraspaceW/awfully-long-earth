@@ -38,6 +38,15 @@ npm run build-earth # re-rasterises Natural Earth country outlines (needs networ
 - **Panel**: the leading powers on the sheet and across all surveyed Big Earth
   (blocs like the EU are counted as one player), the peoples living there, and a
   chronicle of the millennium.
+- **Tap a state** on the map, or its name in a power list, to open its profile:
+  - how it is governed and who leads it;
+  - what its technology lets it do, and its economy;
+  - the peoples living in it;
+  - how it emerged, its predecessor and its successors;
+  - a chart of the provinces it held over time, and its key events across every
+    surveyed sheet.
+
+  The rest of the map fades back while a state is selected.
 - The survey is saved in your browser. **Save & worlds** copies or loads a world
   code, or starts a new world from another seed.
 

@@ -1024,7 +1024,7 @@ class TileSim {
       const now = sizes(snaps[k]);
       for (const [pid, size] of now) {
         this.peak.set(pid, Math.max(this.peak.get(pid) || 0, size));
-        if (!this.isHome(pid)) continue;
+        if (!this.isHome(pid) || this.pol(pid).macro) continue;
         const before = prev.get(pid) || 0;
         const p = this.pol(pid);
         if (size >= 6 && size - before >= Math.max(4, before) && !p.earth) {
@@ -1521,7 +1521,7 @@ class TileSim {
     const par = parent && this.pol(parent);
     const hue = par ? (par.color[0] + rng.range(-35, 35) + 360) % 360 : rng.int(0, 359);
     const pid = this.world.addPolity({
-      name: nm.name, adj: nm.adj, base: nm.base, culture: c, type, founded: Y, ended: null,
+      name: nm.name, adj: nm.adj, base: nm.base, culture: c, type, parent: parent || 0, founded: Y, ended: null,
       capital: { x: this.x, y: this.y, r }, home: this.pos, agg: Math.round(rng.range(0.6, 1.4) * 100) / 100,
       color: [Math.round(hue), rng.int(40, 70), rng.int(40, 60)],
     });
@@ -1998,7 +1998,7 @@ class TileSim {
     const now = this.sizes();
     for (const [o, c] of now) this.peak.set(o, Math.max(this.peak.get(o) || 0, c));
     for (const [pid, size] of now) {
-      if (!this.isHome(pid) || this.pol(pid).earth) continue;
+      if (!this.isHome(pid) || this.pol(pid).earth || this.pol(pid).macro) continue;
       const before = prev.get(pid) || 0;
       if (size >= 6 && size - before >= Math.max(4, before)) {
         const p = this.pol(pid);

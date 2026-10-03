@@ -8,6 +8,7 @@ import { generateTile, canGenerate } from '../src/sim.js';
 import { getGeo, edgeLinks, neighbourPos } from '../src/geo.js';
 import { players, fmtPop, fmtMoney } from '../src/stats.js';
 import { federationAt, eraShift, effectiveYear, regionPos } from '../src/macro.js';
+import { nationProfile } from '../src/bio.js';
 import { techCap } from '../src/constants.js';
 import { regionCapacity } from '../src/geo.js';
 import { tileKey } from '../src/constants.js';
@@ -219,6 +220,22 @@ for (const t of [-1, -2, -3]) {
   assert.ok(maxJump <= 0.8, 'a world flips wholesale into or out of a federation');
   assert.ok(diff / n < 0.05, 'survey order changes how far worlds have federated');
   console.log('federation membership agrees with the macro layer in both survey orders');
+}
+
+// nation profiles: every state on the map can be profiled
+{
+  const rome = nationProfile(world, world.byKey('e:rome'), 100);
+  assert.ok(rome.alive && rome.prov > 10 && rome.peoples.length >= 3 && rome.type === 'empire', 'Rome profile');
+  let n = 0;
+  for (const h of world.tiles.values()) {
+    for (const o of new Set(h.snaps[2].owner)) {
+      if (!o) continue;
+      const b = nationProfile(world, o, h.t * 1000 + 500);
+      assert.ok(b && b.government && b.origin && b.series.length, `profile for ${o}`);
+      n++;
+    }
+  }
+  console.log(`nation profiles: built ${n}; e.g. ${rome.name}: ${rome.government}`);
 }
 
 // across Earth's eastern edge, land should mostly continue as land

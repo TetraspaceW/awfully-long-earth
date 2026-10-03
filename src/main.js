@@ -9,6 +9,7 @@ import { generateTile, canGenerate, regionName, T_MIN, T_MAX } from './sim.js';
 import { tileStateAt, players, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
 import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './render.js';
 import { eraShift } from './macro.js';
+import { nationProfile } from './bio.js';
 
 const STORE = 'awfully-long-earth:world';
 const $ = (id) => document.getElementById(id);
@@ -17,7 +18,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const state = {
   world: null, Y: 2000, mode: 'political',
   cam: { cx: 0.5, cy: 0.5, scale: 400 },
-  sel: { x: 0, y: 0 }, busy: false,
+  sel: { x: 0, y: 0 }, busy: false, nation: 0,
 };
 
 // --------------------------------------------------------------- storage
@@ -87,13 +88,13 @@ function resize() {
 }
 
 function tileImage(x, y, st) {
-  const key = `${tileKey(x, y, st.hist.t)}|${state.Y}|${state.mode}`;
+  const key = `${tileKey(x, y, st.hist.t)}|${state.Y}|${state.mode}|${state.nation}`;
   let c = imgCache.get(key);
   if (!c) {
     if (imgCache.size > 300) imgCache.clear();
     c = document.createElement('canvas');
     c.width = W; c.height = H;
-    c.getContext('2d').putImageData(renderTile(state.world, x, y, st.snap, state.Y, state.mode), 0, 0);
+    c.getContext('2d').putImageData(renderTile(state.world, x, y, st.snap, state.Y, state.mode, state.nation), 0, 0);
     imgCache.set(key, c);
   }
   return c;
@@ -314,11 +315,20 @@ function click(sx, sy) {
   const c = cellAt(sx, sy);
   if (!c) return;
   state.sel = { x: c.x, y: c.y };
-  if (!tileStateAt(state.world, c.x, c.y, state.Y)) {
+  const st = tileStateAt(state.world, c.x, c.y, state.Y);
+  if (!st) {
+    state.nation = 0;
     const t = layerFor(c.x, c.y);
     if (canGenerate(state.world, c.x, c.y, t)) { survey(c.x, c.y, t); return; }
+  } else {
+    // tapping a state opens its profile; tapping sea or stateless land closes it
+    const geo = getGeo(c.x, c.y);
+    const r = geo.region[c.k];
+    const land = r >= 0 && cellBiome(geo, c.k, state.Y) !== 0;
+    state.nation = land ? st.snap.owner[r] || 0 : 0;
   }
   draw(); renderPanel();
+  if (state.nation) $('panel').scrollTop = 0;
 }
 
 function survey(x, y, t, quiet = false) {
@@ -451,6 +461,7 @@ function renderPanel() {
       ${canGenerate(world, x, y, t) ? 'Click it on the map, or use the buttons above, to fill it in from the sheets around it.' : 'Survey a sheet next to it (in space or time) first.'}</p></section>`;
   }
   html += globalPowers();
+  if (state.nation) html = nationCard(state.nation) + html;
   $('panel').innerHTML = html;
 
   for (const b of $('panel').querySelectorAll('[data-ext]')) {
@@ -468,6 +479,11 @@ function renderPanel() {
     });
   }
   for (const b of $('panel').querySelectorAll('[data-year]')) b.addEventListener('click', () => setYear(Number(b.dataset.year)));
+  for (const b of $('panel').querySelectorAll('[data-nation]')) {
+    b.addEventListener('click', () => { openNation(Number(b.dataset.nation)); });
+  }
+  $('closeNation')?.addEventListener('click', () => { state.nation = 0; draw(); renderPanel(); });
+  wireChart();
   $('ring')?.addEventListener('click', () => surveyRing(x, y, t));
   $('deep')?.addEventListener('click', () => surveyDeep(x, y, t));
   const cur = $('panel').querySelector('.ev.now');
@@ -493,11 +509,116 @@ function powersHere(x, y) {
   if (!list.length) return `<section><h3>Powers in ${formatYear(state.Y)}</h3><p class="note">No states here yet: bands, villages and chiefdoms.</p></section>`;
   const max = list[0].gdp || 1;
   return `<section><h3>Powers here in ${formatYear(state.Y)}</h3><ol class="powers">${list.map((p) => `
-    <li><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
+    <li ${p.bloc ? '' : `data-nation="${p.id}" class="pickable" tabindex="0" title="Open profile"`}><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
       <span class="pn">${esc(p.name)}${p.bloc ? ` <em>bloc of ${p.members.length}</em>` : ''}${worldsTag(p)}</span>
       <span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol>
     <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}</p></section>`;
+}
+
+function openNation(pid) {
+  state.nation = pid;
+  draw(); renderPanel();
+  $('panel').scrollTop = 0;
+}
+
+const TYPE_LABEL = {
+  chiefdom: 'Chiefdom', 'city-states': 'City league', kingdom: 'Kingdom', empire: 'Empire', horde: 'Nomadic confederation',
+  republic: 'Republic', federation: 'Federation', union: 'Union', theocracy: 'Theocracy', league: 'League',
+  'interworld federation': 'Interworld federation',
+};
+
+function nationCard(pid) {
+  const b = nationProfile(state.world, pid, state.Y);
+  if (!b) return '';
+  const link = (n) => `<button class="linkish" data-nation="${n.id}">${esc(n.name)}</button>`;
+  const also = b.names.map(([, n]) => n).filter((n, i, a) => n !== b.name && a.indexOf(n) === i);
+  const stat = (label, value) => `<div class="stat"><span>${label}</span><b>${value}</b></div>`;
+  const evs = b.events.slice(-14);
+  return `<section class="nation" aria-label="Nation profile">
+    <div class="nation-head">
+      <span class="sw big" style="background:${polityCss(state.world, pid)}"></span>
+      <div class="nation-title">
+        <div class="sheet-id">${esc(TYPE_LABEL[b.type] || b.type)}${b.p.earth ? ' · Terra record' : ''}</div>
+        <h2>${esc(b.name)}</h2>
+        ${b.endonym && !b.p.macro ? `<div class="endonym">In its own tongue, <i>${esc(b.endonym)}</i></div>` : ''}
+      </div>
+      <button id="closeNation" class="close" aria-label="Close profile">×</button>
+    </div>
+    ${b.fate ? `<p class="note">${esc(b.fate)}</p>` : ''}
+    ${b.alive ? `<div class="stats">
+      ${stat('People', fmtPop(b.pop))}${stat('Economy', fmtMoney(b.gdp))}
+      ${stat('Per head', fmtMoney(b.perHead).replace(' k', 'k'))}${stat('Provinces', b.prov)}
+      ${stat(b.worlds > 1 ? 'Worlds' : 'Capital', b.worlds > 1 ? b.worlds : esc(b.capital))}${stat('Era', esc(b.era))}
+    </div>` : ''}
+    <h3>How it is governed</h3>
+    <p class="prose">${esc(b.government)}${b.alive && !b.p.macro && !b.p.earth ? ` In ${esc(formatYear(state.Y))} it is led by ${esc(b.ruler)}.` : ''}</p>
+    ${b.alive ? `<h3>What it can do</h3><p class="prose">${esc(b.life)}</p>` : ''}
+    ${b.peoples.length ? `<h3>Peoples</h3><ul class="peoples">${b.peoples.map((c) => `
+      <li><span class="sw" style="background:${cultureCss(state.world, c.id)}"></span><span class="pn">${esc(c.name)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
+    <h3>How it emerged</h3>
+    <p class="prose">${esc(b.origin)}${b.parent ? ` It grew out of ${link(b.parent)}.` : ''}</p>
+    ${also.length ? `<p class="fine">Also known as ${also.map(esc).join(', ')}.</p>` : ''}
+    ${b.series.length > 1 ? `<h3>Extent over time</h3>${extentChart(b)}` : ''}
+    ${evs.length ? `<h3>Key events</h3><ol class="chron short">${evs.map((e) => `
+      <li class="ev k-${e.kind}"><button class="yr" data-year="${e.y}">${esc(formatYear(e.y))}</button><span class="kind">${esc(e.where)}</span><p>${esc(e.text)}</p></li>`).join('')}</ol>` : ''}
+    ${b.successors.length ? `<p class="prose">Successors: ${b.successors.map(link).join(', ')}.</p>` : ''}
+  </section>`;
+}
+
+// Provinces held over time, as a small area chart with a hover readout.
+function extentChart(b) {
+  const s = b.series, w = 340, h = 96, pad = { l: 30, r: 8, t: 8, b: 18 };
+  const x0 = s[0].Y, x1 = s[s.length - 1].Y, ymax = Math.max(...s.map((d) => d.prov));
+  const X = (Y) => pad.l + ((Y - x0) / Math.max(1, x1 - x0)) * (w - pad.l - pad.r);
+  const Yp = (v) => pad.t + (1 - v / ymax) * (h - pad.t - pad.b);
+  const line = s.map((d, i) => `${i ? 'L' : 'M'}${X(d.Y).toFixed(1)},${Yp(d.prov).toFixed(1)}`).join('');
+  const area = `${line}L${X(x1).toFixed(1)},${Yp(0)}L${X(x0).toFixed(1)},${Yp(0)}Z`;
+  const now = state.Y >= x0 && state.Y <= x1 ? `<line class="now" x1="${X(state.Y)}" x2="${X(state.Y)}" y1="${pad.t}" y2="${Yp(0)}"/>` : '';
+  const cur = s.reduce((a, d) => (Math.abs(d.Y - state.Y) < Math.abs(a.Y - state.Y) ? d : a), s[0]);
+  const data = esc(JSON.stringify(s.map((d) => [d.Y, d.prov, Math.round(d.pop)])));
+  return `<div class="chart" data-series="${data}" data-x0="${x0}" data-x1="${x1}" data-ymax="${ymax}">
+    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Provinces held from ${esc(formatYear(x0))} to ${esc(formatYear(x1))}, peaking at ${b.peak.prov} in ${esc(formatYear(b.peak.Y))}">
+      <line class="grid" x1="${pad.l}" x2="${w - pad.r}" y1="${Yp(ymax)}" y2="${Yp(ymax)}"/>
+      <line class="axis" x1="${pad.l}" x2="${w - pad.r}" y1="${Yp(0)}" y2="${Yp(0)}"/>
+      <text x="${pad.l - 4}" y="${Yp(ymax) + 3}" text-anchor="end">${ymax}</text>
+      <text x="${pad.l - 4}" y="${Yp(0) + 3}" text-anchor="end">0</text>
+      <text x="${pad.l}" y="${h - 4}">${esc(formatYear(x0))}</text>
+      <text x="${w - pad.r}" y="${h - 4}" text-anchor="end">${esc(formatYear(x1))}</text>
+      <path class="area" d="${area}"/><path class="line" d="${line}"/>
+      ${now}<circle class="dot" cx="${X(cur.Y)}" cy="${Yp(cur.prov)}" r="4"/>
+      <circle class="hover" r="4" cx="-10" cy="-10"/>
+    </svg>
+    <div class="chart-tip" hidden></div>
+    <p class="fine">Provinces held, across all surveyed sheets. Peak: ${b.peak.prov} province${b.peak.prov === 1 ? '' : 's'} around ${esc(formatYear(b.peak.Y))}.</p>
+  </div>`;
+}
+
+function wireChart() {
+  const box = $('panel').querySelector('.chart');
+  if (!box) return;
+  const s = JSON.parse(box.dataset.series), x0 = +box.dataset.x0, x1 = +box.dataset.x1, ymax = +box.dataset.ymax;
+  const svg = box.querySelector('svg'), tip = box.querySelector('.chart-tip'), dot = box.querySelector('circle.hover');
+  const w = 340, h = 96, pad = { l: 30, r: 8, t: 8, b: 18 };
+  const X = (Y) => pad.l + ((Y - x0) / Math.max(1, x1 - x0)) * (w - pad.l - pad.r);
+  const Yp = (v) => pad.t + (1 - v / ymax) * (h - pad.t - pad.b);
+  const move = (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const vx = ((ev.clientX - rect.left) / rect.width) * w;
+    const d = s.reduce((a, q) => (Math.abs(X(q[0]) - vx) < Math.abs(X(a[0]) - vx) ? q : a), s[0]);
+    dot.setAttribute('cx', X(d[0])); dot.setAttribute('cy', Yp(d[1]));
+    tip.hidden = false;
+    tip.innerHTML = `<b>${esc(formatYear(d[0]))}</b> ${d[1]} province${d[1] === 1 ? '' : 's'} · ${fmtPop(d[2])} people`;
+    tip.style.left = `${Math.min(rect.width - tip.offsetWidth, Math.max(0, (X(d[0]) / w) * rect.width - tip.offsetWidth / 2))}px`;
+  };
+  svg.addEventListener('pointermove', move);
+  svg.addEventListener('pointerleave', () => { tip.hidden = true; dot.setAttribute('cx', -10); });
+  svg.addEventListener('click', (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const vx = ((ev.clientX - rect.left) / rect.width) * w;
+    const d = s.reduce((a, q) => (Math.abs(X(q[0]) - vx) < Math.abs(X(a[0]) - vx) ? q : a), s[0]);
+    setYear(d[0]);
+  });
 }
 
 // How far this sheet's history has drifted from Terra's timeline at this date.
@@ -551,7 +672,7 @@ function globalPowers() {
   if (!list.length) return '';
   const max = list[0].gdp || 1;
   return `<section><h3>Leading powers of surveyed Big Earth, ${formatYear(state.Y)}</h3><ol class="powers">${list.map((p) => `
-    <li><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
+    <li ${p.bloc ? '' : `data-nation="${p.id}" class="pickable" tabindex="0" title="Open profile"`}><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
       <span class="pn">${esc(p.name)}${worldsTag(p)}</span><span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol></section>`;
 }
