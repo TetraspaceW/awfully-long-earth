@@ -23,12 +23,13 @@ import { Rng, hashN } from './rng.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
 import { regionPower } from './stats.js';
 import { cloneSnap } from './world.js';
-import { development, targetStateShare, targetStateCount, federationAt, federationPolity, effectiveYear } from './macro.js';
+import { development, targetStateShare, targetStateCount, federationAt, federationPolity, federationWorlds, effectiveYear, regionPos, sheetCentre } from './macro.js';
 
 const DIR_NAME = { E: 'east', W: 'west', N: 'north', S: 'south' };
 // backward generation drifts technology towards this share of the era ceiling,
 // matching where forward runs settle
-const BACK_TECH = 0.93;
+const BACK_TECH = 1.05;
+const BACK_LAG = 400;
 // beyond Terra's present the future is speculation; far from Terra, a sheet can
 // reach those levels in what is Terra's distant past
 const milestoneText = (t, r, Y) => (Y > 2000 && /post-industrial|Spaceports/.test(t) ? '(Speculative) ' : '') + t.replace('{r}', r);
@@ -158,6 +159,8 @@ class TileSim {
     this.sizeFactor = Math.max(0.05, hab / 200);
     this.devMemo = new Map();
     this.effMemo = new Map();
+    this.regMemo = new Map();
+    this.pos = this.R.map((reg) => regionPos(x, y, reg));
     this.ctl = { emerge: 1, succ: 0.85, consol: 1, decay: 1, Sstar: 0.6 };
   }
 
@@ -176,31 +179,50 @@ class TileSim {
     const reg = this.R[r];
     const m = reg.cellsNow ? this.cap(r, Y) / Math.max(1, reg.cells) : 0;
     const hf = 0.45 + 0.55 * Math.min(1, m / 0.6);
-    return hf + (1 - hf) * clamp((this.E(Y) - 1500) / 400, 0, 1);
+    return hf + (1 - hf) * clamp((this.Er(r, Y) - 1500) / 400, 0, 1);
   }
   // the year whose technology and institutions this sheet is living through
   // (Terra's timeline plus the sheet's drift from it); sea level and ice follow real time
   E(Y) {
     let e = this.effMemo.get(Y);
-    if (e === undefined) { e = effectiveYear(this.world.seed, this.x, this.y, Y); this.effMemo.set(Y, e); }
+    if (e === undefined) { e = effectiveYear(this.world.seed, ...sheetCentre(this.x, this.y), Y); this.effMemo.set(Y, e); }
     return e;
   }
 
+  // Per province: macro fields are evaluated where each province actually is, so
+  // they run smoothly across sheet edges. Cached per year.
+  perRegion(Y) {
+    let m = this.regMemo.get(Y);
+    if (!m) {
+      const seed = this.world.seed;
+      m = { E: new Float32Array(this.n), dev: new Float32Array(this.n) };
+      for (let r = 0; r < this.n; r++) {
+        const [gx, gy] = this.pos[r];
+        m.E[r] = effectiveYear(seed, gx, gy, Y);
+        m.dev[r] = development(seed, gx, gy, Y);
+      }
+      if (this.regMemo.size > 64) this.regMemo.clear();
+      this.regMemo.set(Y, m);
+    }
+    return m;
+  }
+  Er(r, Y) { return this.perRegion(Y).E[r]; }
   dev(Y) {
     let d = this.devMemo.get(Y);
-    if (d === undefined) { d = development(this.world.seed, this.x, this.y, Y); this.devMemo.set(Y, d); }
+    if (d === undefined) { d = development(this.world.seed, ...sheetCentre(this.x, this.y), Y); this.devMemo.set(Y, d); }
     return d;
   }
   // after 1550 every region converges on the frontier minus a persistent
   // institutional gap, giving Earth-like inequality; all modes share this target
   // (the gap fades over the millennium after 2000)
   modernGoal(r, Y) {
-    const gap = (1.6 - this.inst[r]) * 1.6 * (1 - clamp((this.E(Y) - 2000) / 1000, 0, 1));
-    return techCap(this.E(Y)) - 0.1 - gap;
+    const E = this.Er(r, Y);
+    const gap = (1.6 - this.inst[r]) * 1.6 * (1 - clamp((E - 2000) / 1000, 0, 1));
+    return techCap(E) - 0.1 - gap;
   }
 
   // the era's ceiling here, including the sheet's golden or dark age
-  techCeil(r, Y) { return techCap(this.E(Y)) * this.habFactor(r, Y) * this.dev(Y); }
+  techCeil(r, Y) { const m = this.perRegion(Y); return techCap(m.E[r]) * this.habFactor(r, Y) * m.dev[r]; }
 
   // ------------------------------------------------- steering to the macro layer
 
@@ -225,12 +247,35 @@ class TileSim {
   }
 
   // Multipliers that nudge every generation mode towards the same macro targets.
-  control(Y) {
+  // Targets at each province's position (refreshed every 250 years), and their
+  // averages over the sheet. The sheet only measures; the targets vary smoothly
+  // across it and on into the next sheet.
+  localTargets(Y) {
+    const key = Math.floor(Y / 250);
+    if (this.tgtMemo && this.tgtMemo.key === key) return this.tgtMemo;
     const seed = this.world.seed;
-    const Tm = techCap(this.E(Y)) * this.dev(Y);
+    const S = new Float32Array(this.n), N = new Float32Array(this.n);
+    let sS = 0, sN = 0, w = 0;
+    for (let r = 0; r < this.n; r++) {
+      const [gx, gy] = this.pos[r];
+      const Tm = techCap(effectiveYear(seed, gx, gy, Y)) * development(seed, gx, gy, Y);
+      S[r] = targetStateShare(seed, gx, gy, Y, Tm);
+      N[r] = targetStateCount(seed, gx, gy, Y, Tm, this.sizeFactor);
+      const c = this.R[r].cells;
+      sS += S[r] * c; sN += Math.log(N[r]) * c; w += c;
+    }
+    this.tgtMemo = { key, S, N, Smean: w ? sS / w : 0.5, Nmean: w ? Math.exp(sN / w) : 10 };
+    return this.tgtMemo;
+  }
+
+  // >1 where this province's surroundings should be more unified than the sheet average
+  unity(r) { const t = this.tgtMemo; return t ? clamp((t.Nmean / t.N[r]) ** 0.7, 0.4, 2.5) : 1; }
+
+  control(Y) {
     const m = this.measure(Y);
-    const Sstar = targetStateShare(seed, this.x, this.y, Y, Tm);
-    const Nstar = targetStateCount(seed, this.x, this.y, Y, Tm, this.sizeFactor);
+    const lt = this.localTargets(Y);
+    const Sstar = lt.Smean;
+    const Nstar = lt.Nmean;
     const gS = m.ready ? Sstar - m.S : 0;
     const gN = m.effN > 0 && m.ready >= 3 ? Math.log(m.effN / Nstar) : 0;
     this.ctl = {
@@ -514,8 +559,9 @@ class TileSim {
     for (let r = 0; r < n; r++) {
       if (!culture[r]) continue;
       const c = this.techCeil(r, Yp);
-      const ramp = clamp((this.E(Yp) - 1550) / 300, 0, 1);
-      const goal = (1 - ramp) * BACK_TECH * c + ramp * this.modernGoal(r, Yp);
+      const ramp = clamp((this.Er(r, Yp) - 1550) / 300, 0, 1);
+      // forward runs climb towards a rising ceiling and lag behind it; aim where they actually are
+      const goal = (1 - ramp) * BACK_TECH * this.techCeil(r, Yp - BACK_LAG) + ramp * this.modernGoal(r, Yp - BACK_LAG);
       let t = tech[r] + (goal - tech[r]) * (0.07 + 0.43 * ramp) + rng.normal() * 0.03;
       tech[r] = clamp(t, 0.3, Math.max(c, goal) + 0.2);
     }
@@ -536,7 +582,7 @@ class TileSim {
     }
 
     // worlds leave and rejoin federations exactly when the macro layer says
-    this.backFed(Y, Yp);
+    this.alignFeds(Y, false, Yp);
     this.control(Yp);
 
     // states shrink back towards their founding
@@ -852,116 +898,88 @@ class TileSim {
 
   // ---------------------------------------------------- multi-world federations
 
-  // Share of this sheet's state-held provinces that belong to federation F.
-  fedShare(F) {
-    let fed = 0, owned = 0;
-    for (const o of this.s.owner) if (o) { owned++; if (o === F) fed++; }
-    return owned ? fed / owned : 0;
-  }
-
-  // Forwards: follow the macro layer's federation membership and accession share.
-  fedStep(Y) {
-    const { world, rng } = this;
-    const fed = federationAt(world.seed, this.x, this.y, Y);
-    const F = fed ? federationPolity(world, fed, Y) : 0;
-    const want = fed ? fed.share : 0;
-    // a different federation here: the macro layer merged or split it
-    for (const G of new Set(this.s.owner)) {
-      if (!G || G === F || !this.pol(G).macro) continue;
-      if (F) {
-        for (let r = 0; r < this.n; r++) if (this.s.owner[r] === G) this.s.owner[r] = F;
-        this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(G, Y - 1, true)} merges into ${this.pref(F, Y)}.`, F);
-      } else {
-        this.peel(G, 0, Y, true);
-      }
+  // The federation (polity id) each province should belong to in year Y, from
+  // the territorial federation domains of the macro layer.
+  fedTargets(Y) {
+    if (this.fedMemo && this.fedMemo.Y === Y) return this.fedMemo.t;
+    const t = new Int32Array(this.n);
+    const info = new Map();
+    for (let r = 0; r < this.n; r++) {
+      const [gx, gy] = this.pos[r];
+      const fed = federationAt(this.world.seed, gx, gy, Y);
+      if (!fed) continue;
+      const F = federationPolity(this.world, fed, Y);
+      t[r] = F;
+      info.set(F, fed);
     }
-    if (!F) return;
-    const have = this.fedShare(F);
-    if (have < want - 0.02) this.accede(F, want, Y, fed, true);
-    else if (have > want + 0.02) this.peel(F, want, Y, true);
+    this.fedMemo = { Y, t, info };
+    return t;
   }
 
-  // Backwards: before Y the sheet held share(Yp) in federation Fp.
-  backFed(Y, Yp) {
-    const { world, rng } = this;
-    const fed = federationAt(world.seed, this.x, this.y, Yp);
-    const Fp = fed ? federationPolity(world, fed, Yp) : 0;
-    const want = fed ? fed.share : 0;
-    for (const G of new Set(this.s.owner)) {
-      if (!G || G === Fp || !this.pol(G).macro) continue;
-      if (Fp) {
-        // forwards, Fp merged into G at Y
-        for (let r = 0; r < this.n; r++) if (this.s.owner[r] === G) this.s.owner[r] = Fp;
-        this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(Fp, Yp, true)} merges into ${this.pref(G, Y)}.`, G);
-      } else {
-        this.peel(G, 0, Y, false, Yp);
-      }
-    }
-    if (!Fp) return;
-    const have = this.fedShare(Fp);
-    if (have > want + 0.02) this.peel(Fp, want, Y, false, Yp);
-    else if (have < want - 0.02) this.accede(Fp, want, Y, fed, false, Yp);
-  }
-
-  // Bring whole states into F until it holds `want` of the sheet. Forwards they
-  // accede; backwards (forward = false) they had seceded at Y.
-  accede(F, want, Y, fed, forward, Yp = Y) {
+  // Make the sheet agree with the federation domains. Forwards (at Y), provinces
+  // outside a federation's domain secede and states mostly inside one accede.
+  // Backwards (towards Yp) the same differences are undone: provinces outside
+  // the earlier domain were states that acceded at Y, and provinces inside it
+  // that aren't federal yet had seceded at Y.
+  alignFeds(Y, forward, Yp = Y) {
     const { rng } = this;
+    const Yt = forward ? Y : Yp;
+    const tgt = this.fedTargets(Yt);
+    const { owner } = this.s;
+    // federal provinces whose domain has moved
+    const out = new Map();
+    for (let r = 0; r < this.n; r++) {
+      const o = owner[r];
+      if (!o || !this.pol(o).macro || tgt[r] === o) continue;
+      if (tgt[r]) { owner[r] = tgt[r]; continue; } // frontier between two federations
+      if (!out.has(o)) out.set(o, []);
+      out.get(o).push(r);
+    }
+    for (const [G, regs] of out) {
+      for (const comp of this.components(regs).flatMap((c) => this.byCulture(c))) {
+        const best = comp.reduce((a, b) => (this.s.tech[b] > this.s.tech[a] ? b : a));
+        const np = this.createPolity(best, Yt, null, { type: rng.pick(['republic', 'federation', 'union']) });
+        if (!np) continue;
+        for (const r of comp) owner[r] = np;
+        const yy = Y - rng.int(0, 49);
+        if (forward) {
+          if (comp.length >= 2 && !this.warm) this.ev(yy, 'polity', `${this.pref(np, Y, true)} secedes from ${this.pref(G, Y)}.`, G);
+        } else {
+          const p = this.pol(np);
+          p.founded = null; p.ended = yy;
+          if (this.sched) this.makeSched(np, comp.length, Yp);
+          if (comp.length >= 2) this.ev(yy, 'polity', `${this.pref(np, Yp, true)} accedes to ${this.pref(G, Y)}.`, G);
+        }
+      }
+    }
+    // provinces inside a domain join it, wherever the frontier happens to fall;
+    // a state wholly inside joins as a whole
     const mem = this.members();
-    const owned = [...mem.values()].reduce((a, l) => a + l.length, 0);
-    let have = mem.get(F)?.length || 0;
-    const states = rng.shuffle([...mem.keys()].filter((p) => p !== F && !this.pol(p).macro && !this.isDestined(p)))
-      .sort((a, b) => mem.get(b).length - mem.get(a).length);
-    const first = have === 0;
-    for (const pid of states) {
-      if (have / owned >= want - 0.02) break;
-      const list = mem.get(pid);
-      for (const r of list) this.s.owner[r] = F;
-      have += list.length;
-      const yy = Y - rng.int(0, 49);
+    for (const [pid, list] of mem) {
       const p = this.pol(pid);
-      if (forward) {
-        if (this.isHome(pid) && !this.extPower(pid, 0, Y).c) p.ended = yy;
-        if (!this.warm) this.ev(yy, 'polity', first && pid === states[0]
-          ? `${this.world.tileName(this.x, this.y)} begins to join ${this.pref(F, Y)}, a federation of ${fed.members.length} worlds, as ${this.pref(pid, Y)} accedes.`
-          : `${this.pref(pid, Y, true)} accedes to ${this.pref(F, Y)}.`, F);
-      } else {
-        if (!p.earth) p.founded = yy;
-        if (this.sched) this.sched.delete(pid);
-        this.ev(yy, 'polity', `${this.pref(pid, Y, true)} secedes from ${this.pref(F, Yp)}.`, F);
-      }
-    }
-  }
-
-  // Release F's provinces here, a people at a time, until F holds `want`. Forwards
-  // they secede as new states; backwards (forward = false) they were states that
-  // acceded at Y.
-  peel(F, want, Y, forward, Yp = Y) {
-    const { rng } = this;
-    const regs = [];
-    for (let r = 0; r < this.n; r++) if (this.s.owner[r] === F) regs.push(r);
-    let owned = 0;
-    for (const o of this.s.owner) if (o) owned++;
-    let have = regs.length;
-    const comps = rng.shuffle(this.components(regs).flatMap((c) => this.byCulture(c)));
-    const all = want <= 0;
-    for (const comp of comps) {
-      if (!all && have / owned <= want + 0.02) break;
-      const best = comp.reduce((a, b) => (this.s.tech[b] > this.s.tech[a] ? b : a));
-      const np = this.createPolity(best, forward ? Y : Yp, null, { type: rng.pick(['republic', 'federation', 'union']) });
-      if (!np) continue;
-      for (const r of comp) this.s.owner[r] = np;
-      have -= comp.length;
+      if (p.macro || this.isDestined(pid)) continue;
+      const counts = new Map();
+      for (const r of list) if (tgt[r]) counts.set(tgt[r], (counts.get(tgt[r]) || 0) + 1);
+      if (!counts.size) continue;
+      for (const r of list) if (tgt[r]) owner[r] = tgt[r];
+      const [F, inside] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+      const whole = inside === list.length;
       const yy = Y - rng.int(0, 49);
       if (forward) {
-        if (!this.warm) this.ev(yy, 'polity', all && have === 0
-          ? `The last provinces of ${this.world.tileName(this.x, this.y)} leave ${this.pref(F, Y)}, as ${this.pref(np, Y)} goes its own way.`
-          : `${this.pref(np, Y, true)} secedes from ${this.pref(F, Y)}.`, F);
+        if (whole && this.isHome(pid) && !this.extPower(pid, 0, Y).c) p.ended = yy;
+        if (!this.warm && (whole || inside >= 3)) {
+          const fed = this.fedMemo.info.get(F);
+          const n = fed ? federationWorlds(this.world.seed, fed, Y) : 1;
+          this.ev(yy, 'polity', whole
+            ? `${this.pref(pid, Y, true)} accedes to ${this.pref(F, Y)}${n > 1 ? `, a federation reaching across ${n} worlds` : ''}.`
+            : `${inside} provinces of ${this.pref(pid, Y)} vote to join ${this.pref(F, Y)}.`, F);
+        }
       } else {
-        const p = this.pol(np);
-        p.founded = null; p.ended = yy;
-        if (this.sched) this.makeSched(np, comp.length, Yp);
-        this.ev(yy, 'polity', `${this.pref(np, Yp, true)} accedes to ${this.pref(F, Y)}.`, F);
+        if (whole && !p.earth) p.founded = yy;
+        if (whole && this.sched) this.sched.delete(pid);
+        if (whole || inside >= 3) this.ev(yy, 'polity', whole
+          ? `${this.pref(pid, Y, true)} secedes from ${this.pref(F, Yp)}.`
+          : `${inside} provinces break away from ${this.pref(F, Yp)} and rejoin ${this.pref(pid, Y)}.`, F);
       }
     }
   }
@@ -1313,7 +1331,7 @@ class TileSim {
     this.Y = Y;
     this.control(Y);
     this.seedDestined(Y, false);
-    this.fedStep(Y);
+    this.alignFeds(Y, true);
     this.techStep(s, Y);
     const shocked = this.shocks(s, Y);
     this.cultureStep(s, Y);
@@ -1340,8 +1358,9 @@ class TileSim {
     const { n, R, rng } = this;
     const { tech, owner, culture } = this.s;
     const nt = tech.slice();
-    const ceilNow = techCap(this.E(Y));
+    const pr = this.perRegion(Y);
     for (let r = 0; r < n; r++) {
+      const Ereg = pr.E[r];
       if (!culture[r]) { nt[r] = 0; continue; }
       const c = this.techCeil(r, Y);
       let t = tech[r];
@@ -1357,8 +1376,8 @@ class TileSim {
       // the modern breakthrough spreads everywhere, unevenly: each region converges
       // on the frontier minus a persistent institutional gap, giving Earth-like
       // inequality by 2000
-      if (this.E(Y) >= 1550) t += (this.modernGoal(r, Y) - t) * 0.5 * clamp((this.E(Y) - 1550) / 300, 0, 1);
-      nt[r] = Math.min(t, ceilNow + 0.2);
+      if (Ereg >= 1550) t += (this.modernGoal(r, Y) - t) * 0.5 * clamp((Ereg - 1550) / 300, 0, 1);
+      nt[r] = Math.min(t, techCap(Ereg) + 0.2);
     }
     tech.set(nt);
     for (let r = 0; r < n; r++) if (tech[r] > this.techMax) this.techMax = tech[r];
@@ -1533,7 +1552,8 @@ class TileSim {
       const cap = this.cap(r, Y);
       if (cap < 0.3) continue;
       if (this.target && this.target.owner[r] && this.isDestined(this.target.owner[r]) && s > 14) continue;
-      const P = 0.025 * (tech[r] - 2.4) * Math.min(1, cap / 3) * (this.E(Y) >= 1950 ? 6 : 1) * this.ctl.emerge;
+      const P = 0.025 * (tech[r] - 2.4) * Math.min(1, cap / 3) * (this.Er(r, Y) >= 1950 ? 6 : 1) * this.ctl.emerge
+        * (this.tgtMemo ? Math.exp(4 * (this.tgtMemo.S[r] - this.tgtMemo.Smean)) : 1);
       if (!rng.chance(P)) continue;
       const pid = this.createPolity(r, Y, created);
       if (pid && !this.warm && (tech[r] >= 3 || rng.chance(0.3))) {
@@ -1605,7 +1625,7 @@ class TileSim {
         }
         const A = st.p * coh;
         const ratio = A / (A + D);
-        let P = this.attackRate(Y, pt, tech[r], pid) * ratio * ratio * 2 * (q ? 0.7 : 1) * this.ctl.consol;
+        let P = this.attackRate(Y, pt, tech[r], pid) * ratio * ratio * 2 * (q ? 0.7 : 1) * this.ctl.consol * this.unity(r);
         if (!q && tech[r] >= 2.6) P *= Math.min(1, this.ctl.emerge); // over target: stop swallowing stateless land
         if (dest) P *= 1 + 6 * (s / STEPS) ** 2;
         if (rng.chance(Math.min(0.9, P))) this.annex(pid, r, q, Y);
@@ -1773,7 +1793,7 @@ class TileSim {
       const age = Y - (p.founded ?? this.start - 200);
       // dynasties age; constitutional high-tech states mostly don't
       const ageing = Math.min(0.04, Math.max(0, age - 200) / 20000) * (t >= 8 ? 0.15 : 1);
-      let P = (0.004 + 0.07 * Math.max(0, size / L - 0.85) + ageing) / this.ctl.consol * this.ctl.decay;
+      let P = (0.004 + 0.07 * Math.max(0, size / L - 0.85) + ageing) / this.ctl.consol * this.ctl.decay / this.unity(p.capital.r >= 0 ? p.capital.r : list[0]);
       if (p.type === 'horde') P *= 2.2;
       if (this.E(Y) >= 1850 && t >= 7.5) P *= this.E(Y) >= 2000 ? 0.5 : 0.15;
       if (shocked.has(p.capital.r)) P += 0.12;

@@ -502,12 +502,12 @@ function powersHere(x, y) {
 
 // How far this sheet's history has drifted from Terra's timeline at this date.
 function driftNote(x, y) {
-  const shift = eraShift(state.world.seed, x, y, state.Y);
+  const shift = eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);
   if (Math.abs(shift) < 150) return '';
   const rounded = Math.round(shift / 50) * 50;
   const E = state.Y + rounded;
   const yrs = Math.abs(rounded).toLocaleString('en-US');
-  return `<p class="drift">Living in its own ${esc(formatYear(E))}: ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's timeline</p>`;
+  return `<p class="drift">At its centre, living in its own ${esc(formatYear(E))}: ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's timeline</p>`;
 }
 
 function worldsTag(p) {

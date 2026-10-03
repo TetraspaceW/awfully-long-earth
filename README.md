@@ -102,19 +102,24 @@ real 2000 figures, so other sheets' powers are comparable to the US, EU and Chin
 You can survey sheets in any order: forwards from a past, backwards from a
 future, or by tapping a sheet in the middle of nowhere. The micro history (which
 kingdom, which war) depends on the order, but the macro picture is meant not to.
-`src/macro.js` defines it as a pure function of the seed, sheet position and year:
+`src/macro.js` defines it as a pure function of the seed, a position and a year.
+Positions are continuous: each province is evaluated where it actually lies, and
+nothing in the macro layer knows where a sheet edge is, because sheets are how the
+map is cut up, not features of the territory.
 
 | Macro quantity | Meaning |
 |---|---|
 | Development | Golden and dark ages: a smooth space-time field scaling the era's technology ceiling (fades out after 1500) |
 | Modern technology | Each province's level after 1550: the frontier minus a persistent institutional gap that fades after 2000 |
 | State share | How much state-ready land is under states, which depends on technology and the imperial phase |
-| Effective number of states | How unified the sheet is: empires and fragmentation cycle, nation states arrive, then unification |
-| Federations | Each border between sheets has a seeded window of union. The whole history of federations is worked out once per seed, step by step, so identities persist: a federation keeps its identity as it grows, the larger side keeps it in a merger or split, and borders have hysteresis. A world accedes over about 500 years after joining and secedes over about 500 years before leaving |
+| Effective number of states | How unified a region is: empires and fragmentation cycle, nation states arrive, then unification |
+| Federations | Territorial. Each seed has a few dozen federation cores at fixed places. A core lights up once its surroundings reach its founding era, then its domain grows outward over centuries, holds, and contracts as its era ends. A province belongs to the core whose domain reaches furthest past it, if the province itself is in the federal era. Domains ignore sheet edges, so a federation spans worlds whenever its domain does, and frontiers move continuously |
 
 Every generation mode is steered towards these targets each step: emergence,
 conquest, collapse, decline and unions forwards; revival, re-merging and
-splitting in reverse. `npm test` checks that the same sheet and era reached
+splitting in reverse. A sheet only measures how it is doing against the
+average of its provinces' targets, while the targets themselves vary smoothly
+across it and into the next sheet. `npm test` checks that the same sheet and era reached
 forwards, directly and backwards agree on state share, largest-state share and
 technology. It also checks that federation membership matches the macro layer
 whatever order sheets are surveyed in. The effective number of states still
@@ -122,7 +127,7 @@ varies somewhat during the fast 2000–3000 CE unification.
 
 ### Drift from Terra
 
-Terra's record (sheet 0,0, 1–2000 CE) is the one fixed point. Every other tile is
+Terra's record (the area of sheet 0,0 in 1–2000 CE) is the one fixed point. Every other tile is
 tied to it through chains of boundary conditions, and each link lets history
 wander a little. The macro layer therefore models history's drift from Terra's
 timeline as a **random walk anchored at Terra's record**. Its variance adds up
@@ -131,8 +136,9 @@ with distance:
 - more per millennium along Terra's own column;
 - most for places far from Terra in both space and time.
 
-The main walk is an **era shift**: a sheet can run thousands of years ahead of or
-behind Terra's timeline. Its technology, institutions, nation-state era, colonial
+The main walk is an **era shift**: a place can run thousands of years ahead of or
+behind Terra's timeline. Distance is measured from Terra's actual area, so the
+shift grows smoothly outwards with no step at sheet edges. Its technology, institutions, nation-state era, colonial
 window and federations all follow its own effective year, while sea level and ice
 follow real time. Further walks make some far civilisations persistently unified
 or splintered, more or less dominated by states, and more boom-and-bust.

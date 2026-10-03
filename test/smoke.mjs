@@ -7,7 +7,7 @@ import { buildEarth } from '../src/earth.js';
 import { generateTile, canGenerate } from '../src/sim.js';
 import { getGeo, edgeLinks, neighbourPos } from '../src/geo.js';
 import { players, fmtPop, fmtMoney } from '../src/stats.js';
-import { federationAt, eraShift, effectiveYear } from '../src/macro.js';
+import { federationAt, eraShift, effectiveYear, regionPos } from '../src/macro.js';
 import { techCap } from '../src/constants.js';
 import { regionCapacity } from '../src/geo.js';
 import { tileKey } from '../src/constants.js';
@@ -160,8 +160,8 @@ for (const t of [-1, -2, -3]) {
 {
   let near = 0, farDeep = 0;
   for (let sd = 1; sd <= 40; sd++) {
-    for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) near = Math.max(near, Math.abs(eraShift(sd, x, y, 2000)));
-    for (let y = -4; y <= 5; y++) for (let x = -5; x <= 4; x++) if (techCap(effectiveYear(sd, x, y, -2500)) >= 10) farDeep++;
+    for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) near = Math.max(near, Math.abs(eraShift(sd, x + 0.5, y + 0.5, 2000)));
+    for (let y = -4; y <= 5; y++) for (let x = -5; x <= 4; x++) if (techCap(effectiveYear(sd, x + 0.5, y + 0.5, -2500)) >= 10) farDeep++;
   }
   console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; world-state-level sheets in 2500 BCE across 40 seeds: ${farDeep}`);
   assert.ok(near <= 500, 'Terra\'s present-day neighbours drift too far');
@@ -173,17 +173,20 @@ for (const t of [-1, -2, -3]) {
 {
   const check = (w) => {
     for (const h of w.tiles.values()) {
+      const g = getGeo(h.x, h.y);
       for (let k = 0; k < 5; k++) {
         const Y = h.t * 1000 + k * 250;
-        const fed = federationAt(w.seed, h.x, h.y, Y);
-        const owners = [...h.snaps[k].owner].filter(Boolean);
-        const inFed = (o) => w.polities.get(o)?.key === (fed && fed.key);
-        const share = owners.length ? owners.filter(inFed).length / owners.length : 0;
-        // (a sheet takes a step or two to accede after its federation forms)
-        if (fed && fed.share >= 0.6) {
-          assert.ok(share >= fed.share - 0.15, `${h.x},${h.y} at ${Y} should be in ${fed.edge.id} (share ${share.toFixed(2)})`);
+        let should = 0, are = 0, stray = 0, owned = 0;
+        for (const r of g.regions) {
+          const o = h.snaps[k].owner[r.id];
+          if (!o) continue;
+          owned++;
+          const fed = federationAt(w.seed, ...regionPos(h.x, h.y, r), Y);
+          const p = w.polities.get(o);
+          if (fed) { should++; if (p?.key === fed.key) are++; } else if (p?.macro) stray++;
         }
-        if (!fed) assert.ok(!owners.some((o) => w.polities.get(o)?.macro), `${h.x},${h.y} at ${Y} holds a federation it is not in`);
+        if (should >= 10) assert.ok(are / should >= 0.75, `${h.x},${h.y} at ${Y}: only ${are}/${should} federal provinces follow the domains`);
+        if (owned) assert.ok(stray / owned <= 0.1, `${h.x},${h.y} at ${Y}: ${stray} provinces held by a federation outside its domain`);
       }
     }
   };
