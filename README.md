@@ -158,7 +158,8 @@ the difference is arbitrary far enough out:
 | 1 sheet | under a century |
 | 10 sheets | about 1,000 years |
 | 100 sheets | about 10,000 years (some over a million) |
-| 1,000 sheets | about 500,000 years, and sometimes more than the age of the universe |
+| 1,000 sheets | about 20 million years, sometimes far more than the age of the universe |
+| 100,000 sheets | around 10<sup>34</sup> years |
 
 This holds around every world, not just Terra: each has close neighbours and wildly
 different far-offs. Worlds living before 300,000 BCE have no humans yet. Worlds far
@@ -167,8 +168,10 @@ in cycles. The panel shows each sheet's divergence and how far it runs ahead or
 behind.
 
 The field is a pure function of position, so it does not depend on survey order. It
-is built from smooth noise at seven scales, from 3 to 2,430 sheets, anchored at zero
-over Terra. Further walks make some far civilisations persistently unified or
+is built from octaves of smooth noise 3, 9, 27, … sheets across, anchored at zero
+over Terra, with weights growing like a random walk's. There is no largest octave:
+at distance d from Terra, octaves up to about 300d sheets across take part, fading
+in smoothly, so the divergence never levels off. Further walks make some far civilisations persistently unified or
 splintered, more or less dominated by states, and more boom-and-bust.
 
 ### Climate

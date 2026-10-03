@@ -177,6 +177,11 @@ for (const t of [-1, -2, -3]) {
   console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; largest divergence step between neighbours ${step.toFixed(2)} x max(1000 years, ${POD_SWING * 100}%); largest divergence sampled ${far.toExponential(1)} years; world-state-level sheets in 2500 BCE (sampled to 60 sheets out, 40 seeds): ${farDeep}`);
   assert.ok(step <= 2, 'far-off worlds differ wildly from their own neighbours');
   assert.ok(far > 1e6, 'divergence never gets arbitrary');
+  // no largest octave: it keeps growing far beyond the old 2,430-sheet scale
+  const at = (d) => { const v = []; for (let sd = 1; sd <= 10; sd++) for (let a = 0; a < 12; a++) v.push(divergence(sd, d * Math.cos(a / 2), d * Math.sin(a / 2), 2000)); return v.sort((p, q) => p - q)[60]; };
+  const d1 = at(10000), d2 = at(100000);
+  console.log(`divergence keeps growing: median ${d1.toExponential(1)} years at 10,000 sheets, ${d2.toExponential(1)} at 100,000`);
+  assert.ok(d2 > 1e6 * d1 && Number.isFinite(d2), 'divergence levels off far away');
   assert.ok(near <= 500, 'Terra\'s present-day neighbours drift too far');
   assert.ok(farDeep >= 1, 'far reaches never get strange enough');
 }

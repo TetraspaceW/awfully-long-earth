@@ -76,37 +76,52 @@ function walk(seed, tag, gx, gy, Y) {
 // geometrically once it is large. A world runs half its divergence ahead of or
 // behind Terra's timeline.
 //
-// Implemented as a smooth "divergence coordinate" u, anchored at zero over
-// Terra's area, whose step between neighbouring sheets is at most about 1. A
+// Implemented as a smooth "divergence coordinate" u, a sum of noise octaves
+// anchored at zero over Terra's area, whose step between neighbouring sheets is at most about 1. A
 // step du moves the divergence by max(1000, POD_SWING * P) * du, so P is
 // linear in u up to 1000 / POD_SWING years and exponential beyond. The sign of
 // u says whether the world runs ahead or behind.
 export const POD_SWING = 0.2;
 const POD_STEP = 1000;
 const POD_KNEE = POD_STEP / POD_SWING;
-// [sheets, weight, years per lattice step in time]: broad octaves keep growing,
-// so the walk never levels off, and change slowly so a world's past is stable
-const POD_OCTAVES = [[3, 1, 4000], [10, 3, 6000], [30, 7, 10000], [90, 14, 20000],
-  [270, 24, 40000], [810, 40, 80000], [2430, 70, 160000]];
+// Octave k is 3^(k+1) sheets across. Weights grow by about sqrt(3) an octave,
+// like a random walk, and broad octaves change slowly so a world's past is stable.
+// There is no largest octave: at distance d from Terra, octaves up to about 300d
+// sheets across take part, fading in between 100d and 300d. Broader ones would
+// barely differ between here and Terra, so the walk never levels off.
+const POD_BASE = [[1, 4000], [3, 6000], [7, 10000], [14, 20000], [24, 40000], [40, 80000], [70, 160000]];
+const podOctave = (k) => {
+  const sc = 3 ** (k + 1);
+  if (k < POD_BASE.length) return [sc, ...POD_BASE[k]];
+  return [sc, 70 * Math.sqrt(3) ** (k - 6), 160000 * 2 ** (k - 6)];
+};
 
-function podField(seed, gx, gy, Y) {
+function podField(seed, gx, gy, Y, tx, ty, d) {
   let s = 0;
-  for (const [sc, a, per] of POD_OCTAVES) s += a * (2 * field(seed, 'pod' + sc, gx, gy, Y, per, sc) - 1);
+  const reach = 300 * Math.max(1, d);
+  for (let k = 0; ; k++) {
+    const [sc, a, per] = podOctave(k);
+    if (sc >= reach) break;
+    const w = sc <= reach / 3 ? 1 : fade((reach - sc) / (reach * 2 / 3));
+    const tag = 'pod' + sc;
+    s += w * a * 2 * (field(seed, tag, gx, gy, Y, per, sc) - field(seed, tag, tx, ty, Y, per, sc));
+  }
   return s;
 }
 
 // Years since divergence for a divergence coordinate u.
 export function podYears(u) {
   const a = Math.abs(u);
-  return a * POD_STEP <= POD_KNEE ? a * POD_STEP : POD_KNEE * Math.exp(POD_SWING * a - 1);
+  // capped only to stay a finite number
+  return a * POD_STEP <= POD_KNEE ? a * POD_STEP : POD_KNEE * Math.exp(Math.min(690, POD_SWING * a - 1));
 }
 
 // Divergence coordinate of a place: 0 over Terra's record. Away from Terra's own
 // millennia it widens everywhere at once (so neighbours stay close).
 function podCoord(seed, gx, gy, Y) {
-  const { dt } = terraDistance(gx, gy, Y);
+  const { ds, dt } = terraDistance(gx, gy, Y);
   const tx = clamp(gx, 0, 1), ty = clamp(gy, 0, 1);
-  return (podField(seed, gx, gy, Y) - podField(seed, tx, ty, Y)) * (1 + 0.15 * dt);
+  return podField(seed, gx, gy, Y, tx, ty, ds) * (1 + 0.15 * dt);
 }
 
 // How long ago this place's history parted from Terra's.
