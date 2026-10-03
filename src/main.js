@@ -315,12 +315,20 @@ function click(sx, sy) {
   const c = cellAt(sx, sy);
   if (!c) return;
   state.sel = { x: c.x, y: c.y };
-  // the map is for moving around and surveying; state profiles open from the lists
-  if (!tileStateAt(state.world, c.x, c.y, state.Y)) {
+  const st = tileStateAt(state.world, c.x, c.y, state.Y);
+  if (!st) {
+    state.nation = 0;
     const t = layerFor(c.x, c.y);
     if (canGenerate(state.world, c.x, c.y, t)) { survey(c.x, c.y, t); return; }
+  } else {
+    // tapping a state opens its profile; tapping sea or stateless land closes it
+    const geo = getGeo(c.x, c.y);
+    const r = geo.region[c.k];
+    const land = r >= 0 && cellBiome(geo, c.k, state.Y) !== 0;
+    state.nation = land ? st.snap.owner[r] || 0 : 0;
   }
   draw(); renderPanel();
+  if (state.nation) $('panel').scrollTop = 0;
 }
 
 function survey(x, y, t, quiet = false) {
@@ -507,7 +515,7 @@ function powersHere(x, y) {
       <span class="pn">${esc(p.name)}${p.bloc ? ` <em>bloc of ${p.members.length}</em>` : ''}${worldsTag(p)}</span>
       <span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol>
-    <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}. Tap a state for its profile.</p>
+    <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}. Tap a state here or on the map for its profile.</p>
     ${allStatesHere(x, y)}</section>`;
 }
 
