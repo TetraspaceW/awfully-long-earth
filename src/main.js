@@ -7,7 +7,7 @@ import { World } from './world.js';
 import { buildEarth, prepareEarthGeo } from './earth.js';
 import { generateTile, canGenerate, regionName } from './sim.js';
 import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
-import { renderTile, polityCss, cultureCss, speciesCss, rampCss, clearColorCache } from './render.js';
+import { renderTile, polityCss, cultureCss, speciesCss, rampCss, clearColorCache, FOCUS_FADE, FOCUS_ALPHA } from './render.js';
 import { eraShift, divergence } from './macro.js';
 import { nationProfile } from './bio.js';
 import { speciesAt, speciesInfo, cultureSpecies } from './species.js';
@@ -131,8 +131,8 @@ function resize() {
 // small thumbnails (60 x 30), so thousands fit; full size only when close up.
 const IMG_KEEP = 400, THUMB_KEEP = 6000;
 let fullCount = 0;
-function tileImage(x, y, st, small, budget) {
-  const base = `${tileKey(x, y, st.hist.t)}|${state.Y}|${state.mode}|${state.nation}`;
+function tileImage(x, y, st, small, budget, focus) {
+  const base = `${tileKey(x, y, st.hist.t)}|${state.Y}|${state.mode}|${focus}`;
   const key = small ? `${base}|s` : base;
   let c = imgCache.get(key);
   if (c) { imgCache.delete(key); imgCache.set(key, c); return c; }
@@ -143,7 +143,7 @@ function tileImage(x, y, st, small, budget) {
   if (!src) {
     src = document.createElement('canvas');
     src.width = W; src.height = H;
-    src.getContext('2d').putImageData(renderTile(state.world, x, y, st.snap, state.Y, state.mode, state.nation), 0, 0);
+    src.getContext('2d').putImageData(renderTile(state.world, x, y, st.snap, state.Y, state.mode, focus), 0, 0);
   }
   if (small) {
     c = document.createElement('canvas');
@@ -211,11 +211,19 @@ function draw() {
       const [sx, sy] = toScreen(tx, ty);
       const st = tileStateAt(state.world, x, ty, state.Y);
       if (st) {
-        const img = tileImage(x, ty, st, s * dpr < 90, budget);
+        // only sheets the selected nation holds need a render of their own;
+        // the rest reuse their usual image under a uniform fade
+        const focus = state.mode === 'political' ? state.nation : 0;
+        const here = focus && st.snap.owner.includes(focus);
+        const img = tileImage(x, ty, st, s * dpr < 90, budget, here ? focus : 0);
         if (img) {
           ctx.imageSmoothingEnabled = img.width < W;
           ctx.drawImage(img, sx, sy, s, th);
           ctx.imageSmoothingEnabled = false;
+          if (focus && !here) {
+            ctx.fillStyle = `rgba(${FOCUS_FADE.join(',')},${FOCUS_ALPHA})`;
+            ctx.fillRect(sx, sy, s, th);
+          }
           if (state.mode === 'political' && s > 260) labels.push(...polityLabels(x, ty, st, sx, sy, s));
         } else {
           missing = true;
@@ -424,20 +432,6 @@ function click(sx, sy) {
   if (state.nation) $('panel').scrollTop = 0;
 }
 
-// Reveal any sheet directly, however far away: with no neighbours it is
-// generated from the macro layer alone, which is the same whatever the order.
-function jumpTo(x, y) {
-  state.sel = { x, y };
-  state.cam.cx = x + 0.5; state.cam.cy = y + 0.5;
-  state.nation = 0;
-  if (!state.world.hasTile(x, y, LAYER)) {
-    generateTile(state.world, x, y, LAYER);
-    toast(`Revealed ${state.world.tileName(x, y)}`);
-    scheduleSave();
-  }
-  draw(); renderPanel();
-}
-
 function survey(x, y, t, quiet = false) {
   if (!canGenerate(state.world, x, y, t)) return false;
   generateTile(state.world, x, y, t);
@@ -516,14 +510,6 @@ function renderPanel() {
     <div class="row-btns">
       <button id="ring" ${st ? '' : 'disabled'}>Reveal all neighbours</button>
     </div>
-    <form class="jump" id="jump">
-      <label>Jump to any world <span class="fine">(revealed directly, from its macro history)</span></label>
-      <div class="jump-row">
-        <input id="jx" type="number" step="1" value="${x}" aria-label="Sheet x" inputmode="numeric">
-        <input id="jy" type="number" step="1" value="${y}" aria-label="Sheet y" inputmode="numeric">
-        <button type="submit">Go</button>
-      </div>
-    </form>
   </section>`;
 
   if (st) {
@@ -558,7 +544,6 @@ function renderPanel() {
   $('panel').querySelector('.allstates')?.addEventListener('toggle', (e) => { state.allOpen = e.target.open; });
   $('closeNation')?.addEventListener('click', () => { state.nation = 0; draw(); renderPanel(); });
   $('ring')?.addEventListener('click', () => surveyRing(x, y, t));
-  $('jump')?.addEventListener('submit', (e) => { e.preventDefault(); jumpTo(Math.round(+$('jx').value || 0), Math.round(+$('jy').value || 0)); });
 }
 
 function powersHere(x, y) {
@@ -671,6 +656,9 @@ function speciesNote(x, y) {
     if (top) sp = top[0];
   }
   if (!sp) {
+    // nothing evolves sapience on a snowball or under a runaway greenhouse
+    const dT = climateAt(x + 0.5, y + 0.5);
+    if (dT <= -35 || dT >= 120) return '';
     const id = speciesAt(state.world.seed, x + 0.5, y + 0.5);
     sp = speciesInfo(id, divergence(state.world.seed, x + 0.5, y + 0.5, state.Y));
   }

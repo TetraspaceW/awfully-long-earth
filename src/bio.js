@@ -92,10 +92,18 @@ function government(p, type, tech, title, capital, worlds, rng) {
   }
 }
 
+// Whether a state holds any land on a tile, at any snapshot. A cheap scan of the
+// owner arrays, so only the few tiles a state touches need their geography.
+function holds(h, pid) {
+  for (const sn of h.snaps) if (sn.owner.includes(pid)) return true;
+  return false;
+}
+
 // Every snapshot of every surveyed tile in which the state holds land.
 function footprint(world, pid) {
   const byYear = new Map();
   for (const h of world.tiles.values()) {
+    if (!holds(h, pid)) continue;
     const geo = getGeo(h.x, h.y);
     h.snaps.forEach((sn, k) => {
       const Y = h.t * 1000 + k * 250;
@@ -127,7 +135,7 @@ function present(world, pid, Y) {
     if (seen.has(pos)) continue;
     seen.add(pos);
     const st = tileStateAt(world, h.x, h.y, Y);
-    if (!st) continue;
+    if (!st || !st.snap.owner.includes(pid)) continue;
     const geo = getGeo(h.x, h.y);
     const real = geo.earth && Y === 2000 && st.hist.fixed;
     for (const r of geo.regions) {
@@ -146,12 +154,12 @@ function present(world, pid, Y) {
 }
 
 function eventsAbout(world, p) {
-  const names = new Set([p.name, ...(p.names || []).map(([, n]) => n)]);
+  const names = [...new Set([p.name, ...(p.names || []).map(([, n]) => n)])].filter(Boolean);
   const out = [];
   const seen = new Set();
   for (const h of world.tiles.values()) {
     for (const e of h.events) {
-      const hit = e.pid === p.id || [...names].some((n) => n && e.text.includes(n));
+      const hit = e.pid === p.id || names.some((n) => e.text.includes(n));
       if (!hit) continue;
       const k = `${e.y}|${e.text}`;
       if (seen.has(k)) continue;

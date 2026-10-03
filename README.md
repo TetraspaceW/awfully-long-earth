@@ -34,7 +34,6 @@ npm run build-earth # re-rasterises Natural Earth country outlines (needs networ
 - **Click a `+` sheet** to reveal it. The panel's compass buttons reveal the selected
   sheet's north, west, east and south neighbours, or take you to them.
 - **Map buttons**: **Terra** recentres on Earth; **All** fits every revealed sheet.
-- **Jump to any world**: enter sheet coordinates to reveal a sheet anywhere, however far.
 - **Map modes**: states, peoples (language families, where related peoples share
   hues), species, technology, population density, and terrain.
 - **Panel**: the leading powers on the sheet and across all revealed Big Earth
@@ -208,9 +207,8 @@ systems, so a cetacean language sounds like *K'iichoi* and a saurian one like
 *Zhaskaan*.
 
 Humans stay near Terra: other hominids appear a few hundred sheets out, and
-other branches of life about a thousand sheets out. To get there, use **Jump to
-any world** in the panel, which reveals a sheet directly from its macro history.
-The **Species** map mode colours peoples by lineage.
+other branches of life about a thousand sheets out. Snowball and Venusian worlds
+have no sapient lineage. The **Species** map mode colours peoples by lineage.
 
 ### Climate
 

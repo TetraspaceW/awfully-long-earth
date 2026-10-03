@@ -66,6 +66,8 @@ export function clearColorCache() { colorCache.clear(); }
 
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
+export const FOCUS_FADE = [110, 112, 116], FOCUS_ALPHA = 0.6;
+
 export function renderTile(world, x, y, snap, Y, mode, focus = 0) {
   const geo = getGeo(x, y);
   const img = new ImageData(W, H);
@@ -105,8 +107,6 @@ export function renderTile(world, x, y, snap, Y, mode, focus = 0) {
             const o = snap.owner[r];
             if (o) rgb = mix(rgb, polityRgb(world, o), 0.78);
             else rgb = mix(rgb, [150, 150, 145], snap.culture[r] ? 0.55 : 0.2);
-            // a selected nation stands out; everyone else fades back
-            if (focus && o !== focus) rgb = mix(rgb, [110, 112, 116], 0.6);
           } else if (mode === 'species') {
             const c = snap.culture[r];
             rgb = c ? mix(rgb, speciesRgb(world, c), 0.85) : mix(rgb, [150, 150, 145], 0.3);
@@ -127,6 +127,9 @@ export function renderTile(world, x, y, snap, Y, mode, focus = 0) {
           if (v && (right !== v || down !== v)) rgb = rgb.map((c) => c * 0.45);
         }
       }
+      // a selected nation stands out; everything else, sea included, fades back
+      // by the same blend the map applies as an overlay to sheets it is not on
+      if (focus && !(region[k] >= 0 && snap && snap.owner[region[k]] === focus && b !== BIOME.OCEAN)) rgb = mix(rgb, FOCUS_FADE, FOCUS_ALPHA);
       d[k * 4] = rgb[0]; d[k * 4 + 1] = rgb[1]; d[k * 4 + 2] = rgb[2]; d[k * 4 + 3] = 255;
     }
   }

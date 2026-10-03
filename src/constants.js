@@ -41,7 +41,8 @@ export function tileStart(t) { return t * 1000; }
 
 export function formatYear(y) {
   if (y === 0) return '1 CE';
-  const a = Math.abs(Math.round(y)).toLocaleString('en-US');
+  const n = Math.abs(Math.round(y));
+  const a = n < 10000 ? String(n) : n.toLocaleString('en-US');   // 1776 CE, 12,000 BCE
   return y < 0 ? `${a} BCE` : `${a} CE`;
 }
 
