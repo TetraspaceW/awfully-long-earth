@@ -96,6 +96,11 @@ real 2000 figures, so other sheets' powers are comparable to the US, EU and Chin
   domain); the "2000 CE" snapshot uses those present-day figures.
 - **Earth before 1 CE** is generated, constrained only by needing to arrive at the
   real world of 1 CE (Rome, Han, Parthia and the rest are founded at their real dates).
+- **Larger states with higher technology.** A state's sustainable size grows
+  roughly linearly with technology until the information age, then steeply.
+  Treaties unite states into continental federations, then world states, and a
+  state on one sheet can join a federation centred on the next, so in the far
+  future single polities span several worlds.
 - **After 2000 CE** tiles are speculative and marked as such. Wars resume at a low
   rate, independence movements succeed, constitutions change, kin states unite and
   blocs such as the EU may federate.

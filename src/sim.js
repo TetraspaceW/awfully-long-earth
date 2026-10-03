@@ -89,6 +89,8 @@ function newCulture(world, rng, { parent = 0, origin = null, home = null } = {})
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // "Republic of France", "Republic of the United Kingdom"
 const ofName = (n) => (/^(United|Czech|Dominican|Central|Democratic|Solomon|Marshall)|s$|Kingdom|Republic|Emirates/.test(n) ? `the ${n}` : n);
+// the short name a state's renames are built from: "Krou", "Terra", "France"
+const coreName = (p) => p.core ?? p.base ?? p.name.replace(/^(The |Kingdom of |Republic of |Federation of )/, '');
 const familyName = (c) => (c ? c.name.replace(/ \(.*\)$/, '').replace(/ & .*$/, '') : 'Common');
 
 // --------------------------------------------------------------- public API
@@ -216,8 +218,11 @@ class TileSim {
   limit(pid, tech, Y) {
     const p = this.pol(pid);
     const tf = { horde: 1.4, 'city-states': 0.35, chiefdom: 0.3, league: 0.6, empire: 1.2 }[p.type] ?? 1;
-    const modern = Y >= 1850 ? 0.6 : 1;
-    return (3 + 5 * tech) * tf * modern;
+    // nation-state era: many mid-sized states. Past the information age the reach
+    // of a single government grows steeply: a whole world near tech 9.5, many
+    // worlds beyond 10.
+    const modern = Y >= 1850 && tech < 9 ? 0.6 : 1;
+    return (3 + 5 * tech) * tf * modern * Math.exp(Math.max(0, tech - 7) * 1.1);
   }
 
   // -------------------------------------------------------------- run
@@ -1264,8 +1269,10 @@ class TileSim {
       const p = this.pol(pid);
       const L = this.limit(pid, this.meanTech(list), Y);
       const foreignShare = list.filter((r) => culture[r] !== p.culture).length / list.length;
+      const pt = this.meanTech(list);
+      const colonialShare = list.filter((r) => culture[r] !== p.culture && this.s.tech[r] < pt - 0.8).length / list.length;
       let P = 0.02 * Math.max(0, list.length / L - 0.6) + 0.015 * foreignShare;
-      if (Y >= 1945 && foreignShare > 0.3) P += 0.3;
+      if (Y >= 1945 && colonialShare > 0.2) P += 0.3; // decolonisation
       if (Y >= 2000) P += 0.008; // independence movements
       if (this.target && s > 15) P *= 0.3;
       if (!rng.chance(P)) continue;
@@ -1302,7 +1309,9 @@ class TileSim {
       const size = list.length + ext;
       const L = this.limit(pid, t, Y);
       const age = Y - (p.founded ?? this.start - 200);
-      let P = 0.004 + 0.07 * Math.max(0, size / L - 0.85) + Math.min(0.04, Math.max(0, age - 200) / 20000);
+      // dynasties age; constitutional high-tech states mostly don't
+      const ageing = Math.min(0.04, Math.max(0, age - 200) / 20000) * (t >= 8 ? 0.15 : 1);
+      let P = 0.004 + 0.07 * Math.max(0, size / L - 0.85) + ageing;
       if (p.type === 'horde') P *= 2.2;
       if (Y >= 1850 && t >= 7.5) P *= Y >= 2000 ? 0.5 : 0.15;
       if (shocked.has(p.capital.r)) P += 0.12;
@@ -1328,8 +1337,8 @@ class TileSim {
         p.names = p.names || [[p.founded ?? this.start, p.name]];
         p.names.push([Y, nm]);
         this.ev(Y - rng.int(0, 49), 'polity', `The ${p.name} proclaims itself the ${nm}.`, pid);
-      } else if (Y >= 2000 && rng.chance(0.012)) {
-        const b = ofName(p.base ?? p.name.replace(/^(The |Kingdom of |Republic of |Federation of )/, ''));
+      } else if (Y >= 2000 && rng.chance(p.type === 'federation' ? 0.004 : 0.012)) {
+        const b = ofName(coreName(p));
         const nm = rng.pick([`Second Republic of ${b}`, `Commonwealth of ${b}`, `${b} Directorate`, `Free State of ${b}`, `Restored Kingdom of ${b}`, `People's Assembly of ${b}`]);
         p.names = p.names || [[p.founded ?? this.start, p.name]];
         p.names.push([Y, nm]);
@@ -1363,39 +1372,157 @@ class TileSim {
     }
   }
 
-  // The speculative future: kin states unite, blocs federate.
+  // The speculative future: as technology rises, states unite (by treaty far more
+  // than by conquest), first into continental federations, then whole worlds,
+  // then federations spanning several worlds across the sheet edges.
   futureUnions(s, Y, mem) {
     if (Y < 2000) return;
     const { rng, world } = this;
-    if (rng.chance(0.3)) {
-      const pids = rng.shuffle([...mem.keys()].filter((p) => this.isHome(p) && !this.isDestined(p)));
-      for (const a of pids.slice(0, 6)) {
-        const root = world.cultureRoot(this.pol(a).culture);
-        let b = 0;
-        for (const r of mem.get(a)) for (const o of this.R[r].adj) {
-          const q = this.s.owner[o];
-          if (q && q !== a && this.isHome(q) && world.cultureRoot(this.pol(q).culture) === root) b = q;
-        }
-        if (!b) continue;
-        const regs = [...mem.get(a), ...(mem.get(b) || [])];
-        const fam = world.cultures.get(root);
-        const pa = this.pol(a), pb = this.pol(b);
-        const name = rng.chance(0.5) && fam ? rng.pick([`${familyName(fam)} Federation`, `United ${familyName(fam)} States`, `${familyName(fam)} Union`])
-          : `Union of ${ofName(pa.base ?? world.polityName(a, Y))} and ${ofName(pb.base ?? world.polityName(b, Y))}`;
-        this.merge([a, b], regs, name, 'federation', Y,
-          `${this.pref(a, Y, true)} and ${this.pref(b, Y)} unite as the ${name}.`);
-        return;
-      }
+    const info = new Map();
+    let tsum = 0, tn = 0;
+    for (const [pid, list] of mem) {
+      const t = this.meanTech(list);
+      info.set(pid, { t, size: list.length + this.extPower(pid, s, Y).c });
+      tsum += t * list.length; tn += list.length;
     }
+    const tAvg = tn ? tsum / tn : 0;
+    const rate = clamp((tAvg - 8.6) * 0.07, 0.01, 0.3);
+    const attempts = Math.ceil(mem.size * rate);
+    for (let k = 0; k < attempts; k++) {
+      const pids = [...mem.keys()].filter((p) => mem.get(p).length && !this.isDestined(p));
+      if (pids.length < 2) break;
+      const a = rng.weighted(pids, (p) => Math.sqrt(info.get(p)?.size || 1));
+      const ia = info.get(a);
+      const cand = new Map();
+      for (const r of mem.get(a)) {
+        for (const o of this.neighbours(r, ia.t + 2)) {
+          const b = this.s.owner[o];
+          if (b && b !== a && mem.has(b) && mem.get(b).length && !this.isDestined(b)) cand.set(b, true);
+        }
+      }
+      if (!cand.size) continue;
+      const rootA = world.cultureRoot(this.pol(a).culture);
+      const b = rng.weighted([...cand.keys()], (q) => (world.cultureRoot(this.pol(q).culture) === rootA ? 3 : 1));
+      const ib = info.get(b);
+      const t = Math.min(ia.t, ib.t);
+      if (t < 8.8 || ia.size + ib.size > 0.8 * this.limit(a, t, Y)) continue;
+      this.unite(a, b, mem, info, Y);
+    }
+    this.accessions(s, Y, mem, info);
     for (const bloc of world.blocs) {
       if (bloc.to || Y < Math.max(2050, bloc.from + 60)) continue;
-      const here = bloc.members.filter((m) => mem.has(m));
+      const here = bloc.members.filter((m) => mem.has(m) && mem.get(m).length);
       if (here.length < 3 || !rng.chance(0.04)) continue;
       const name = bloc.name.replace(/ (Union|Community|Compact)$/, '').replace(/^Council of (.*) States$/, '$1') + ' Federation';
       this.merge(here, here.flatMap((m) => mem.get(m)), name, 'federation', Y,
         `The ${here.length} members of the ${bloc.name} merge into a single state, the ${name}.`);
       bloc.to = Y;
       return;
+    }
+  }
+
+  // Two states become one: the much larger absorbs the smaller, equals federate.
+  unite(a, b, mem, info, Y) {
+    const { rng, world } = this;
+    const [big, small] = info.get(a).size >= info.get(b).size ? [a, b] : [b, a];
+    const homeSmall = this.isHome(small) && !this.extPower(small, 0, Y).c;
+    if (info.get(big).size >= 2 * info.get(small).size && homeSmall) {
+      for (const r of mem.get(small)) this.s.owner[r] = big;
+      this.pol(small).ended = Y;
+      this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(small, Y, true)} ${rng.pick(['accedes to', 'votes to join', 'is admitted to'])} ${this.pref(big, Y)}.`, big);
+      info.get(big).size += info.get(small).size;
+      mem.set(big, [...mem.get(big), ...mem.get(small)]);
+      mem.set(small, []);
+      this.spanCheck(big, Y);
+      return;
+    }
+    if (!this.isHome(a) || !this.isHome(b) || this.extPower(a, 0, Y).c || this.extPower(b, 0, Y).c) return;
+    const root = world.cultureRoot(this.pol(a).culture);
+    const fam = root === world.cultureRoot(this.pol(b).culture) ? world.cultures.get(root) : null;
+    const size = info.get(a).size + info.get(b).size;
+    const pa = this.pol(a), pb = this.pol(b);
+    const name = this.unionName(a, b, fam, size, Y);
+    const regs = [...mem.get(a), ...mem.get(b)];
+    const np = this.merge([a, b], regs, name, 'federation', Y, `${this.pref(a, Y, true)} and ${this.pref(b, Y)} unite as the ${name}.`);
+    if (!np) return;
+    info.set(np, { t: Math.min(info.get(a).t, info.get(b).t), size });
+    mem.set(np, regs); mem.set(a, []); mem.set(b, []);
+  }
+
+  unionName(a, b, fam, size, Y) {
+    const { rng, world } = this;
+    let habitable = 0;
+    for (let r = 0; r < this.n; r++) if (this.cap(r, Y) >= 0.3) habitable++;
+    if (size >= 0.4 * habitable) {
+      const t = world.tileName(this.x, this.y).replace(/^the /, '');
+      return rng.pick([`World State of ${t}`, `${t} Planetary Union`, `Federated ${t}`, `Commonwealth of ${t}`]);
+    }
+    const na = world.polityName(a, Y), nb = world.polityName(b, Y);
+    const short = (n) => n.length <= 14 && !/Union|Federation|States|Commonwealth|Republic|Kingdom/.test(n);
+    if (short(na) && short(nb) && rng.chance(0.5)) return `Union of ${ofName(na)} and ${ofName(nb)}`;
+    if (fam && rng.chance(0.5)) {
+      const w = rng.pick(size >= 60 ? ['Continental Federation', 'Union', 'Commonwealth'] : ['Federation', 'Union', 'United States']);
+      return w === 'United States' ? `United ${familyName(fam)} States` : `${familyName(fam)} ${w}`;
+    }
+    const c = world.cultures.get(this.pol(a).culture);
+    const base = placeName(c && c.phon ? c.phon : randomPhon(rng), rng);
+    return rng.pick([`${adjective(base, c && c.phon, rng)} Federation`, `Federation of ${base}`, `${base} Concord`, `United ${base}`]);
+  }
+
+  // A state joins a federation centred on a neighbouring world.
+  accessions(s, Y, mem, info) {
+    const { rng } = this;
+    for (const [a, list] of mem) {
+      if (!list.length || !this.isHome(a) || this.isDestined(a)) continue;
+      const ia = info.get(a);
+      if (!ia || ia.t < 9) continue;
+      const offers = new Map();
+      for (const r of list) for (const e of this.ext[r]) {
+        const sn = this.nbSnap(e.nb, s);
+        const f = sn.owner[e.rr];
+        if (!f || f === a || sn.tech[e.rr] < 9) continue;
+        const pf = this.pol(f);
+        if (!pf || (pf.ended != null && pf.ended <= Y)) continue;
+        offers.set(f, e.nb);
+      }
+      for (const [f] of offers) {
+        const fsize = this.extPower(f, s, Y).c + (mem.get(f)?.length || 0);
+        if (fsize < 2 * ia.size || fsize + ia.size > 0.8 * this.limit(f, ia.t, Y)) continue;
+        if (!rng.chance(clamp((ia.t - 8.8) * 0.08, 0, 0.25))) continue;
+        for (const r of list) this.s.owner[r] = f;
+        this.pol(a).ended = Y;
+        mem.set(f, [...(mem.get(f) || []), ...list]);
+        mem.set(a, []);
+        this.ev(Y - rng.int(0, 49), 'contact', `${this.pref(a, Y, true)} ${rng.pick(['accedes to', 'votes to join', 'is admitted to'])} ${this.pref(f, Y)} across the edge of the world.`, f);
+        this.spanCheck(f, Y);
+        break;
+      }
+    }
+  }
+
+  // How many worlds (sheets) does this polity span now? Rename it when it first
+  // spans more than one, and mark the milestones.
+  spanCheck(pid, Y) {
+    const worlds = new Set();
+    if (this.s.owner.includes(pid)) worlds.add(this.pos);
+    for (const h of this.world.tilesAt(this.t)) {
+      if (h.x === this.x && h.y === this.y) continue;
+      if (h.snaps[4].owner.includes(pid) || h.snaps[2].owner.includes(pid)) worlds.add(`${h.x},${h.y}`);
+    }
+    const n = worlds.size;
+    const p = this.pol(pid);
+    if (n < 2 || n <= (p.worlds || 1)) return;
+    p.worlds = n;
+    if (!p.interworld) {
+      p.interworld = true;
+      const core = coreName(p);
+      const nm = this.rng.pick([`${core} Concord of Worlds`, `United Worlds of ${ofName(core)}`, `${core} Interworld Federation`, `Commonwealth of the ${core} Worlds`]);
+      p.names = p.names || [[p.founded ?? this.start, p.name]];
+      const old = this.pref(pid, Y - 1);
+      p.names.push([Y, nm]);
+      this.ev(Y - this.rng.int(0, 49), 'polity', `${old[0].toUpperCase()}${old.slice(1)} now spans two worlds and becomes the ${nm}.`, pid);
+    } else if ([3, 5, 10, 20].includes(n)) {
+      this.ev(Y - this.rng.int(0, 49), 'polity', `${this.pref(pid, Y, true)} now spans ${n} worlds.`, pid);
     }
   }
 
@@ -1407,9 +1534,13 @@ class TileSim {
     const p = this.pol(np);
     p.name = name;
     p.base = name;
+    p.adj = name.replace(/^(Union of|United) /, '').replace(/ (Federation|Union|Commonwealth|Continental Federation|States|Compact|Community)$/, '');
+    p.core = name.replace(/^(World State of|Federated|Commonwealth of|Federation of|United|Union of) /, '')
+      .replace(/ (Planetary Union|Continental Federation|Federation|Union|Commonwealth|Concord|States)$/, '');
     for (const r of regs) this.s.owner[r] = np;
     for (const q of pids) this.pol(q).ended = Y;
     this.ev(Y - this.rng.int(0, 49), 'polity', text, np);
+    return np;
   }
 
   // steer towards the future face

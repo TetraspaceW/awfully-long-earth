@@ -76,6 +76,19 @@ for (const t of [-1, -2, -3]) {
   assert.ok(churn(s[0], s[4]) > 0.1, `Terra's future barely changes (${churn(s[0], s[4]).toFixed(2)})`);
 }
 
+// far enough ahead, technology allows federations spanning several worlds
+{
+  const fw = new World(20000);
+  buildEarth(fw);
+  const ring = [[1, 0], [-1, 0], [0, -1], [0, 1]];
+  for (const [x, y] of ring) generateTile(fw, x, y, 1);
+  for (let t = 2; t <= 4; t++) { generateTile(fw, 0, 0, t); for (const [x, y] of ring) generateTile(fw, x, y, t); }
+  const top = players(fw, 5000, null, 3);
+  const span = Math.max(...top.map((p) => (p.tiles ? p.tiles.size : 0)));
+  console.log(`5000 CE: ${top.map((p) => `${p.name} (${p.tiles ? p.tiles.size : '?'} worlds)`).join(', ')}`);
+  assert.ok(span >= 2, 'no multi-world federation by 5000 CE');
+}
+
 // across Earth's eastern edge, land should mostly continue as land
 const e = getGeo(0, 0), east = getGeo(1, 0);
 console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);

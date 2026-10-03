@@ -401,7 +401,7 @@ function renderPanel() {
   const geo = getGeo(x, y);
   const earth = geo.earth;
   let chip = '<span class="chip">Unsurveyed</span>';
-  if (st) chip = earth && !st.hist.fixed ? '<span class="chip gen">Earth, alternate deep past</span>'
+  if (st) chip = earth && !st.hist.fixed && !isSpeculative(t) ? '<span class="chip gen">Earth, alternate deep past</span>'
     : st.hist.fixed ? '<span class="chip real">Real Earth record</span>'
       : isSpeculative(t) ? '<span class="chip spec">Speculative future</span>' : '<span class="chip gen">Generated</span>';
 
@@ -492,10 +492,14 @@ function powersHere(x, y) {
   const max = list[0].gdp || 1;
   return `<section><h3>Powers here in ${formatYear(state.Y)}</h3><ol class="powers">${list.map((p) => `
     <li><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
-      <span class="pn">${esc(p.name)}${p.bloc ? ` <em>bloc of ${p.members.length}</em>` : ''}</span>
+      <span class="pn">${esc(p.name)}${p.bloc ? ` <em>bloc of ${p.members.length}</em>` : ''}${worldsTag(p)}</span>
       <span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol>
     <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}</p></section>`;
+}
+
+function worldsTag(p) {
+  return p.tiles && p.tiles.size > 1 ? ` <em>${p.tiles.size} worlds</em>` : '';
 }
 
 function geoNote(x, y) {
@@ -536,7 +540,7 @@ function globalPowers() {
   const max = list[0].gdp || 1;
   return `<section><h3>Leading powers of surveyed Big Earth, ${formatYear(state.Y)}</h3><ol class="powers">${list.map((p) => `
     <li><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
-      <span class="pn">${esc(p.name)}</span><span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
+      <span class="pn">${esc(p.name)}${worldsTag(p)}</span><span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol></section>`;
 }
 

@@ -59,7 +59,7 @@ export class World {
   // "the Kingdom of X", but "France"
   polityRef(id, Y, capital = false) {
     const n = this.polityName(id, Y);
-    const titled = /\b(Kingdom|Empire|Republic|League|Horde|hordes|Confedera\w+|Realm|Union|Federation|Sultanate|Caliphate|dynasty|Khanate|Khaganate|city-states|Theocracy|Order|Emirate|Commonwealth|Monarchy|Shogunate|States|Chiefdom|chiefdoms|Imamate|Principality|Duchy|kingdoms|Yabghu|Community|Compact|Council|Netherlands|Philippines|Bahamas|Gambia|City|Crowns?|Nawabs|realm|state)\b|ate$/.test(n);
+    const titled = /\b(Kingdom|Empire|Republic|League|Horde|hordes|Confedera\w+|Realm|Union|Federation|Sultanate|Caliphate|dynasty|Khanate|Khaganate|city-states|Theocracy|Order|Emirate|Commonwealth|Monarchy|Shogunate|States|Chiefdom|chiefdoms|Imamate|Assembly|Concord|Directorate|Worlds|Free State|Principality|Duchy|kingdoms|Yabghu|Community|Compact|Council|Netherlands|Philippines|Bahamas|Gambia|City|Crowns?|Nawabs|realm|state)\b|ate$|^United /.test(n);
     if (!titled || /^the /i.test(n)) return n;
     return `${capital ? 'The' : 'the'} ${n}`;
   }
