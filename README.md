@@ -85,6 +85,29 @@ modern breakthrough spreads everywhere, unevenly, so by 2000 the sheets have
 Earth-like inequality. The population and economy models are calibrated on Earth's
 real 2000 figures, so other sheets' powers are comparable to the US, EU and China.
 
+## Order independence
+
+You can survey sheets in any order: forwards from a past, backwards from a
+future, or by tapping a sheet in the middle of nowhere. The micro history (which
+kingdom, which war) depends on the order, but the macro picture is meant not to.
+`src/macro.js` defines it as a pure function of the seed, sheet position and year:
+
+| Macro quantity | Meaning |
+|---|---|
+| Development | Golden and dark ages: a smooth space-time field scaling the era's technology ceiling (fades out after 1500) |
+| Modern technology | Each province's level after 1550: the frontier minus a persistent institutional gap that fades after 2000 |
+| State share | How much state-ready land is under states, which depends on technology and the imperial phase |
+| Effective number of states | How unified the sheet is: empires and fragmentation cycle, nation states arrive, then unification |
+| Federations | Each border between sheets has a seeded window of union. Sheets joined by open borders form one federation, identified by its founding border |
+
+Every generation mode is steered towards these targets each step: emergence,
+conquest, collapse, decline and unions forwards; revival, re-merging and
+splitting in reverse. `npm test` checks that the same sheet and era reached
+forwards, directly and backwards agree on state share, largest-state share and
+technology. It also checks that federation membership matches the macro layer
+whatever order sheets are surveyed in. The effective number of states still
+varies somewhat during the fast 2000–3000 CE unification.
+
 ## Assumptions and liberties
 
 - **Geometry**: each sheet is an equirectangular Earth-sized map. Big Earth wraps
@@ -102,9 +125,9 @@ real 2000 figures, so other sheets' powers are comparable to the US, EU and Chin
   real world of 1 CE (Rome, Han, Parthia and the rest are founded at their real dates).
 - **Larger states with higher technology.** A state's sustainable size grows
   roughly linearly with technology until the information age, then steeply.
-  Treaties unite states into continental federations, then world states, and a
-  state on one sheet can join a federation centred on the next, so in the far
-  future single polities span several worlds.
+  Treaties unite states into continental federations and then world states.
+  From 2400 CE, worlds federate across sheet borders, following the macro
+  layer above.
 - **After 2000 CE** tiles are speculative and marked as such. Wars resume at a low
   rate, independence movements succeed, constitutions change, kin states unite and
   blocs such as the EU may federate.

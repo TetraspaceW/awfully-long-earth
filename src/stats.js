@@ -122,6 +122,7 @@ export function fmtPop(n) {
 }
 
 export function fmtMoney(n) {
+  if (n >= 1e15) return `$${(n / 1e15).toFixed(1)} qd`;
   if (n >= 1e12) return `$${(n / 1e12).toFixed(1)} tn`;
   if (n >= 1e9) return `$${(n / 1e9).toFixed(n >= 1e11 ? 0 : 1)} bn`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(0)} m`;

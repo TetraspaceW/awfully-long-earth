@@ -7,6 +7,8 @@ import { buildEarth } from '../src/earth.js';
 import { generateTile, canGenerate } from '../src/sim.js';
 import { getGeo, edgeLinks, neighbourPos } from '../src/geo.js';
 import { players, fmtPop, fmtMoney } from '../src/stats.js';
+import { federationAt } from '../src/macro.js';
+import { regionCapacity } from '../src/geo.js';
 import { tileKey } from '../src/constants.js';
 
 const warnings = [];
@@ -87,6 +89,77 @@ for (const t of [-1, -2, -3]) {
   const span = Math.max(...top.map((p) => (p.tiles ? p.tiles.size : 0)));
   console.log(`5000 CE: ${top.map((p) => `${p.name} (${p.tiles ? p.tiles.size : '?'} worlds)`).join(', ')}`);
   assert.ok(span >= 2, 'no multi-world federation by 5000 CE');
+}
+
+// order independence: the same sheet and era reached forwards, directly and
+// backwards should look alike at the macro scale
+{
+  const stats = (w, x, y, t) => {
+    const g = getGeo(x, y), h = w.tile(x, y, t);
+    let S = 0, big = 0, tech = 0;
+    for (let k = 0; k < 5; k++) {
+      const sn = h.snaps[k], Y = t * 1000 + k * 250;
+      let ready = 0, owned = 0, tw = 0, ts = 0, oc = 0;
+      const cells = new Map();
+      for (const r of g.regions) {
+        const c = regionCapacity(r, Y);
+        if (sn.culture[r.id]) { ts += sn.tech[r.id] * c; tw += c; }
+        if (!sn.culture[r.id] || sn.tech[r.id] < 2.6 || c < 0.3) continue;
+        ready++;
+        const o = sn.owner[r.id];
+        if (o) { owned++; oc += r.cells; cells.set(o, (cells.get(o) || 0) + r.cells); }
+      }
+      S += (ready ? owned / ready : 0) / 5; tech += (tw ? ts / tw : 0) / 5;
+      big += (oc ? Math.max(...cells.values()) / oc : 0) / 5;
+    }
+    return { S, big, tech };
+  };
+  for (const T of [-4, 3]) {
+    const acc = { forward: [], direct: [], backward: [] };
+    for (const seed of [11, 12, 13]) for (const [x, y] of [[3, 2], [-3, -1]]) {
+      const mk = () => { const w = new World(seed); buildEarth(w); return w; };
+      let w = mk(); generateTile(w, x, y, T - 2); generateTile(w, x, y, T - 1); generateTile(w, x, y, T); acc.forward.push(stats(w, x, y, T));
+      w = mk(); generateTile(w, x, y, T); acc.direct.push(stats(w, x, y, T));
+      w = mk(); generateTile(w, x, y, T + 2); generateTile(w, x, y, T + 1); generateTile(w, x, y, T); acc.backward.push(stats(w, x, y, T));
+    }
+    const avg = (l, k) => l.reduce((a, b) => a + b[k], 0) / l.length;
+    const line = Object.entries(acc).map(([m, l]) => `${m} S ${avg(l, 'S').toFixed(2)} biggest ${avg(l, 'big').toFixed(2)} tech ${avg(l, 'tech').toFixed(2)}`);
+    console.log(`order check t=${T}: ${line.join(' | ')}`);
+    for (const k of ['S', 'big']) {
+      const v = Object.values(acc).map((l) => avg(l, k));
+      assert.ok(Math.max(...v) - Math.min(...v) < 0.15, `order dependence in ${k} at t=${T}: ${v.map((x) => x.toFixed(2))}`);
+    }
+    const tv = Object.values(acc).map((l) => avg(l, 'tech'));
+    assert.ok(Math.max(...tv) - Math.min(...tv) < 0.4, `order dependence in tech at t=${T}: ${tv.map((x) => x.toFixed(2))}`);
+  }
+}
+
+// multi-world federations come from the macro layer, so every sheet agrees on
+// membership whatever order the sheets were surveyed in
+{
+  const check = (w) => {
+    for (const h of w.tiles.values()) {
+      for (let k = 0; k < 5; k++) {
+        const Y = h.t * 1000 + k * 250;
+        const fed = federationAt(w.seed, h.x, h.y, Y);
+        const owners = [...h.snaps[k].owner].filter(Boolean);
+        const inFed = (o) => w.polities.get(o)?.key === (fed && `fed:${fed.edge.id}`);
+        const share = owners.length ? owners.filter(inFed).length / owners.length : 0;
+        // (a sheet takes a step or two to accede after its federation forms)
+        if (fed && Y >= fed.edge.J + 250 && !(federationAt(w.seed, h.x, h.y, Y - 100) === null)) {
+          assert.ok(share > 0.5, `${h.x},${h.y} at ${Y} should be in ${fed.edge.id} (share ${share.toFixed(2)})`);
+        }
+        if (!fed) assert.ok(!owners.some((o) => w.polities.get(o)?.macro), `${h.x},${h.y} at ${Y} holds a federation it is not in`);
+      }
+    }
+  };
+  const a = new World(20000), b = new World(20000);
+  buildEarth(a); buildEarth(b);
+  for (const t of [1, 2, 3, 4, 5]) { generateTile(a, 1, 0, t); generateTile(a, 2, 0, t); }
+  for (const t of [1, 2, 3, 4, 5]) generateTile(b, 2, 0, t);   // far sheet first this time
+  for (const t of [5, 4, 3, 2, 1]) if (!b.hasTile(1, 0, t)) generateTile(b, 1, 0, t);
+  check(a); check(b);
+  console.log('federation membership agrees with the macro layer in both survey orders');
 }
 
 // across Earth's eastern edge, land should mostly continue as land
