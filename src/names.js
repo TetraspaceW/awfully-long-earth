@@ -65,8 +65,40 @@ export function phonFromEarth(key) {
   return { on: sp(e.on), vo: sp(e.vo), co: sp(e.co), ends: sp(e.ends), adj: sp(e.adj), maxSyl: 3, codaP: e.co ? 0.3 : 0 };
 }
 
-export function randomPhon(rng) {
+// Sound inventories for non-human peoples, as transliterated by humans.
+const sp = (x) => x.split(' ').filter(Boolean);
+const VOICES = {
+  stocky: { on: 'g d b k h m n r t gr dr kh', vo: 'a o u aa oo', co: 'k g rk rg m n', ends: 'ag og ur urg aak' },
+  small: { on: 'p t k l m n s w y pl tl', vo: 'i e a ee ia', co: 'n l', ends: 'i ee ini ika ip' },
+  mammal: { on: 'h r m n w b g ch y gr hr', vo: 'a o u aa oo ou', co: 'r m n f', ends: 'oo ar um ouf aa' },
+  cetacean: { on: "k' kl w wh ch tw ee", vo: 'ee ii oo ia ei', co: "k' !", ends: "ee'i ik-ik oo'a ii!" },
+  reptile: { on: 'ss sk kr hs zh th z k t h', vo: 'a i aa ss ae', co: 'ss sk th k x', ends: 'ssa ith ak ess ix' },
+  avian: { on: 'tr tw pr kr r l ch pi k', vo: 'ee i a ii ei', co: 'r rr t', ends: 'ree eek irri itt' },
+  amphibian: { on: 'gl gr b bl m rr w ng', vo: 'oo u o ou', co: 'b rr m ng', ends: 'oop ub ung oor' },
+  fish: { on: 'bl gl w l m b sh', vo: 'o u ou oo uu', co: 'b l sh', ends: 'oul ush ob oo' },
+  mollusc: { on: 'th sh l s m n y', vo: 'u ai ae oi ui', co: 'th sh l', ends: 'uth aith oil yl' },
+  insect: { on: 'tz kk zz x ch tch k t', vo: 'i e ee', co: 'k x tz kk', ends: 'ix ekk itz eex' },
+  trichordate: { on: 'tr thr t r', vo: 'i ai ei', co: 'r', ends: 'tri-tri iri thrir' },
+  radiate: { on: 'm n l y h ny', vo: 'u o a uu oo', co: 'm n', ends: 'umu ola alu oom' },
+  fungal: { on: 'sp m r s mr sk', vo: 'o y u oo', co: 'r m s', ends: 'ory omm usk yr' },
+  prokaryote: { on: 'x q z k v qx', vo: 'a e y', co: 'x q z', ends: '-7 -3 ax yx -12' },
+};
+
+export function randomPhon(rng, voice = null) {
   const take = (arr, n) => rng.shuffle(arr.slice()).slice(0, n);
+  const v = voice && VOICES[voice];
+  if (v) {
+    return {
+      on: take(sp(v.on), rng.int(4, sp(v.on).length)),
+      vo: take(sp(v.vo), rng.int(2, sp(v.vo).length)),
+      co: take(sp(v.co), rng.int(0, sp(v.co).length)),
+      ends: take(sp(v.ends), rng.int(2, sp(v.ends).length)),
+      adj: take(ADJ_ENDS, rng.int(1, 2)),
+      maxSyl: rng.int(2, 3),
+      codaP: rng.range(0.1, 0.5),
+      voice,
+    };
+  }
   return {
     on: take(ONSETS, rng.int(7, 14)),
     vo: ['a', 'i', ...take(VOWELS.slice(2), rng.int(2, 5))],
@@ -86,8 +118,10 @@ export function mutatePhon(p, rng) {
     const add = rng.pick(pool);
     if (!arr.includes(add)) arr.push(add);
   };
-  swap(q.on, ONSETS); swap(q.on, ONSETS); swap(q.vo, VOWELS); swap(q.ends, PLACE_ENDS);
-  if (rng.chance(0.4)) swap(q.co, CODAS);
+  const v = q.voice && VOICES[q.voice];
+  const pool = (k, dflt) => (v ? sp(v[k]) : dflt);
+  swap(q.on, pool('on', ONSETS)); swap(q.on, pool('on', ONSETS)); swap(q.vo, pool('vo', VOWELS)); swap(q.ends, pool('ends', PLACE_ENDS));
+  if (rng.chance(0.4) && pool('co', CODAS).length) swap(q.co, pool('co', CODAS));
   if (!q.on.length) q.on.push('t');
   if (!q.vo.length) q.vo.push('a');
   return q;

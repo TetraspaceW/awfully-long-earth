@@ -78,7 +78,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .zoom button { width: 34px; height: 30px; border: 1px solid var(--rule); background: var(--panel); border-radius: 4px; cursor: pointer; font-size: 15px; }
 .zoom button.wide { width: auto; padding: 0 8px; font-size: 12px; }
 
-.panel { border-left: 1px solid var(--rule); background: var(--panel); overflow-y: auto; min-height: 0; padding: 16px 18px 28px; display: grid; gap: 22px; align-content: start; }
+.panel { border-left: 1px solid var(--rule); background: var(--panel); overflow-y: auto; min-height: 0; padding: 16px 18px 28px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-content: start; }
 .panel section { display: grid; gap: 10px; min-width: 0; }
 .panel h3 { margin: 0; font: 600 11px var(--font-ui); text-transform: uppercase; letter-spacing: 0.09em; color: var(--fg-dim); border-bottom: 1px solid var(--rule); padding-bottom: 5px; }
 .sheet { display: grid; gap: 4px; }
@@ -109,6 +109,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .powers.compact li { grid-template-columns: auto minmax(0, 1fr) auto auto; font-size: 13px; }
 .climate { margin: 4px 0 0; font-size: 13px; color: var(--fg-dim); }
 .climate b { color: var(--fg); font-weight: 600; }
+.jump { display: grid; gap: 4px; margin-top: 4px; }
+.jump label { font-size: 12.5px; color: var(--fg-dim); }
+.jump-row { display: flex; gap: 6px; }
+.jump-row input { flex: 1 1 0; min-width: 0; width: 0; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--bg); color: var(--fg); font: 13px var(--font-mono); }
+.jump-row button { padding: 5px 14px; border: 1px solid var(--rule); border-radius: 4px; background: transparent; cursor: pointer; }
+.jump-row button:hover { border-color: var(--marker); }
+em.species { font-style: normal; font-weight: 600; }
 .drift { margin: 2px 0 0; font: italic 400 15px var(--font-display); color: var(--marker); }
 .chip { font: 500 11px var(--font-ui); text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--rule); color: var(--fg-dim); }
 .chip.real { border-color: var(--real); color: var(--real); }
@@ -186,6 +193,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
     <div class="modes" role="group" aria-label="Map mode">
       <button data-mode="political" aria-pressed="true">States</button>
       <button data-mode="culture" aria-pressed="false">Peoples</button>
+      <button data-mode="species" aria-pressed="false">Species</button>
       <button data-mode="tech" aria-pressed="false">Technology</button>
       <button data-mode="density" aria-pressed="false">Density</button>
       <button data-mode="terrain" aria-pressed="false">Terrain</button>

@@ -34,8 +34,9 @@ npm run build-earth # re-rasterises Natural Earth country outlines (needs networ
 - **Click a `+` sheet** to reveal it. The panel's compass buttons reveal the selected
   sheet's north, west, east and south neighbours, or take you to them.
 - **Map buttons**: **Terra** recentres on Earth; **All** fits every revealed sheet.
+- **Jump to any world**: enter sheet coordinates to reveal a sheet anywhere, however far.
 - **Map modes**: states, peoples (language families, where related peoples share
-  hues), technology, population density, and terrain.
+  hues), species, technology, population density, and terrain.
 - **Panel**: the leading powers on the sheet and across all revealed Big Earth
   (blocs like the EU are counted as one player), the peoples living there, and
   "How this world came to be": the sheet's millennium of history up to 2000.
@@ -162,7 +163,7 @@ the difference is arbitrary far enough out:
 | 100,000 sheets | around 10<sup>34</sup> years |
 
 This holds around every world, not just Terra: each has close neighbours and wildly
-different far-offs. Worlds living before 300,000 BCE have no humans yet. Worlds far
+different far-offs. Worlds living before 300,000 BCE have no sapient species yet. Worlds far
 ahead stay at the top of the technology scale, and their federations rise and fall
 in cycles. The panel shows each sheet's divergence and how far it runs ahead or
 behind.
@@ -173,6 +174,43 @@ over Terra, with weights growing like a random walk's. There is no largest octav
 at distance d from Terra, octaves up to about 300d sheets across take part, fading
 in smoothly, so the divergence never levels off. Further walks make some far civilisations persistently unified or
 splintered, more or less dominated by states, and more boom-and-bust.
+
+### Species
+
+The point of divergence also decides who the people are:
+
+- **Under 300,000 years:** humans.
+- **300,000 to 2.5 million years:** other hominids. These are archaic humans,
+  Neanderthals, Denisovans, Floresians, Erectines and Habilines, each available
+  once history diverged before its line branched off from ours.
+- **Over 2.5 million years:** other branches of the tree of life, each available
+  once history diverged before it branched off from our lineage:
+
+  | Lineage | Branched off |
+  |---|---|
+  | Mammals (apes, simians, placentals, marsupials or monotremes, by depth) | 2.5 million years |
+  | Cetaceans (dolphin people; they are not to be trusted) | 90 million |
+  | Reptilians, saurians (the asteroid missed) and avians | 320 million |
+  | Amphibians | 352 million |
+  | Ichthyans (fish) | 435 million |
+  | Cephalopods, arthropods and insectoids | 600 million |
+  | Trichordates (whatever the Ediacaran biota were doing, it kept going) | 650 million |
+  | Radiates (jellies and corals) | 680 million |
+  | Another kingdom: mycelians, vegetals or protists | 1.2 billion |
+  | Another domain: prokaryotes | 3 billion |
+
+Among the lineages available, the likeliest are those that branched off close to
+the divergence. The choice is made per *realm*, a jittered region about six
+sheets across, so neighbouring worlds mostly share a species. Each people
+records the species of the place it arose and keeps it as it spreads, so
+lineages can meet and mix at realm edges. Non-human peoples have their own sound
+systems, so a cetacean language sounds like *K'iichoi* and a saurian one like
+*Zhaskaan*.
+
+Humans stay near Terra: other hominids appear a few hundred sheets out, and
+other branches of life about a thousand sheets out. To get there, use **Jump to
+any world** in the panel, which reveals a sheet directly from its macro history.
+The **Species** map mode colours peoples by lineage.
 
 ### Climate
 

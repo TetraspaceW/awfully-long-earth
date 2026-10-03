@@ -3,6 +3,7 @@
 import { W, H } from './constants.js';
 import { getGeo, cellBiome, cellTemp, seaState, BIOME, HAB } from './geo.js';
 import { density } from './stats.js';
+import { cultureSpecies } from './species.js';
 
 const BIOME_RGB = [
   [27, 52, 78], [232, 238, 240], [160, 163, 140], [78, 105, 78], [136, 125, 112], [214, 192, 140],
@@ -47,6 +48,18 @@ function cultureRgb(world, id) {
   }
   return c;
 }
+// Species colours: humans a muted slate so every other lineage stands out.
+function speciesRgb(world, cid) {
+  const k = `s${cid}`;
+  let c = colorCache.get(k);
+  if (!c) {
+    const sp = cultureSpecies(world.cultures.get(cid));
+    c = sp.id === 'human' ? [120, 130, 150] : hsl(sp.hue, 70, 52);
+    colorCache.set(k, c);
+  }
+  return c;
+}
+export function speciesCss(world, cid) { const [r, g, b] = speciesRgb(world, cid); return `rgb(${r},${g},${b})`; }
 export function polityCss(world, id) { const [r, g, b] = polityRgb(world, id); return `rgb(${r},${g},${b})`; }
 export function cultureCss(world, id) { const [r, g, b] = cultureRgb(world, id); return `rgb(${r},${g},${b})`; }
 export function clearColorCache() { colorCache.clear(); }
@@ -94,6 +107,9 @@ export function renderTile(world, x, y, snap, Y, mode, focus = 0) {
             else rgb = mix(rgb, [150, 150, 145], snap.culture[r] ? 0.55 : 0.2);
             // a selected nation stands out; everyone else fades back
             if (focus && o !== focus) rgb = mix(rgb, [110, 112, 116], 0.6);
+          } else if (mode === 'species') {
+            const c = snap.culture[r];
+            rgb = c ? mix(rgb, speciesRgb(world, c), 0.85) : mix(rgb, [150, 150, 145], 0.3);
           } else if (mode === 'culture') {
             const c = snap.culture[r];
             rgb = c ? mix(rgb, cultureRgb(world, c), 0.8) : mix(rgb, [150, 150, 145], 0.3);

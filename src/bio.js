@@ -8,6 +8,7 @@ import { regionName } from './sim.js';
 import { Rng, hashN } from './rng.js';
 import { rulerName, shortWord, placeName, randomPhon } from './names.js';
 import { federationWorlds, federationAt } from './macro.js';
+import { cultureSpecies } from './species.js';
 
 const pick = (rng, l) => l[Math.floor(rng.next() * l.length)];
 
@@ -192,7 +193,7 @@ export function nationProfile(world, pid, Y) {
   const peoples = [...now.cultures.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([c, pop]) => {
     const cu = world.cultures.get(c);
     const par = cu && cu.parent ? world.cultures.get(cu.parent) : null;
-    return { id: c, name: cu ? cu.name : '?', from: par ? par.name : null, share: pop / totalPop, ruling: c === p.culture };
+    return { id: c, name: cu ? cu.name : '?', from: par ? par.name : null, share: pop / totalPop, ruling: c === p.culture, species: cultureSpecies(cu) };
   });
 
   const parent = p.parent ? world.polities.get(p.parent) : null;
@@ -223,9 +224,21 @@ export function nationProfile(world, pid, Y) {
     perHead: now.pop ? now.gdp / now.pop : 0,
     government: government(p, type, tech, title, capital, worlds, rng),
     life: TECH_LIFE[Math.max(0, Math.min(TECH_LIFE.length - 1, Math.floor(tech)))],
-    peoples, rulingCulture: culture ? culture.name : null,
+    peoples, rulingCulture: culture ? culture.name : null, species: speciesMix(world, now.cultures, totalPop),
     origin, parent: parent ? { id: parent.id, name: world.polityName(parent.id, p.founded ?? Y) } : null,
     successors: successors.map((q) => ({ id: q.id, name: world.polityName(q.id, q.founded ?? Y) })),
     founded: p.founded, ended: p.ended, series, peak, events,
   };
+}
+
+// Shares of each sapient species among a state's people, largest first.
+function speciesMix(world, cultures, total) {
+  const by = new Map();
+  for (const [c, pop] of cultures) {
+    const s = cultureSpecies(world.cultures.get(c));
+    const a = by.get(s.name) || { ...s, share: 0 };
+    a.share += pop / (total || 1);
+    by.set(s.name, a);
+  }
+  return [...by.values()].sort((a, b) => b.share - a.share);
 }

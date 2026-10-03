@@ -7,9 +7,10 @@ import { World } from './world.js';
 import { buildEarth, prepareEarthGeo } from './earth.js';
 import { generateTile, canGenerate, regionName } from './sim.js';
 import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
-import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './render.js';
+import { renderTile, polityCss, cultureCss, speciesCss, rampCss, clearColorCache } from './render.js';
 import { eraShift, divergence } from './macro.js';
 import { nationProfile } from './bio.js';
+import { speciesAt, speciesInfo, cultureSpecies } from './species.js';
 
 const STORE = 'awfully-long-earth:climate-2000';
 // Big Earth is shown at a single moment, 2000 CE: the end of each sheet's
@@ -391,7 +392,7 @@ function hover(sx, sy) {
       const pop = geo.earth && state.Y === 2000 ? reg.realPop : regionPop(reg, tech, state.Y);
       html = `<b>${esc(regionName(state.world, geo, r))}</b>
         <span>${o ? `<i class="sw" style="background:${polityCss(state.world, o)}"></i>${esc(state.world.polityName(o, state.Y))}` : 'No state'}</span>
-        <span>${cu ? `<i class="sw" style="background:${cultureCss(state.world, cu)}"></i>${esc(state.world.cultureName(cu))}` : 'Uninhabited'}</span>
+        <span>${cu ? `<i class="sw" style="background:${cultureCss(state.world, cu)}"></i>${esc(state.world.cultureName(cu))}${speciesTag(cu)}` : 'Uninhabited'}</span>
         <span>${esc(biome)} · ${deg} · ${cu ? esc(eraName(tech)) : '—'}${cu ? ` · ${fmtPop(pop)} people` : ''}</span>`;
     }
   }
@@ -421,6 +422,20 @@ function click(sx, sy) {
   }
   draw(); renderPanel();
   if (state.nation) $('panel').scrollTop = 0;
+}
+
+// Reveal any sheet directly, however far away: with no neighbours it is
+// generated from the macro layer alone, which is the same whatever the order.
+function jumpTo(x, y) {
+  state.sel = { x, y };
+  state.cam.cx = x + 0.5; state.cam.cy = y + 0.5;
+  state.nation = 0;
+  if (!state.world.hasTile(x, y, LAYER)) {
+    generateTile(state.world, x, y, LAYER);
+    toast(`Revealed ${state.world.tileName(x, y)}`);
+    scheduleSave();
+  }
+  draw(); renderPanel();
 }
 
 function survey(x, y, t, quiet = false) {
@@ -487,6 +502,7 @@ function renderPanel() {
     <h2>${esc(world.tileName(x, y))}</h2>
     <div class="meta">${chip}<span>2000 CE</span></div>
     ${climateNote(x, y)}
+    ${speciesNote(x, y)}
     ${driftNote(x, y)}
   </header>
   <section>
@@ -500,6 +516,14 @@ function renderPanel() {
     <div class="row-btns">
       <button id="ring" ${st ? '' : 'disabled'}>Reveal all neighbours</button>
     </div>
+    <form class="jump" id="jump">
+      <label>Jump to any world <span class="fine">(revealed directly, from its macro history)</span></label>
+      <div class="jump-row">
+        <input id="jx" type="number" step="1" value="${x}" aria-label="Sheet x" inputmode="numeric">
+        <input id="jy" type="number" step="1" value="${y}" aria-label="Sheet y" inputmode="numeric">
+        <button type="submit">Go</button>
+      </div>
+    </form>
   </section>`;
 
   if (st) {
@@ -534,6 +558,7 @@ function renderPanel() {
   $('panel').querySelector('.allstates')?.addEventListener('toggle', (e) => { state.allOpen = e.target.open; });
   $('closeNation')?.addEventListener('click', () => { state.nation = 0; draw(); renderPanel(); });
   $('ring')?.addEventListener('click', () => surveyRing(x, y, t));
+  $('jump')?.addEventListener('submit', (e) => { e.preventDefault(); jumpTo(Math.round(+$('jx').value || 0), Math.round(+$('jy').value || 0)); });
 }
 
 function powersHere(x, y) {
@@ -598,7 +623,9 @@ function nationCard(pid) {
     <p class="prose">${esc(b.government)}${b.alive && !b.p.macro && !b.p.earth ? ` It is led by ${esc(b.ruler)}.` : ''}</p>
     ${b.alive ? `<h3>What it can do</h3><p class="prose">${esc(b.life)}</p>` : ''}
     ${b.peoples.length ? `<h3>Peoples</h3><ul class="peoples">${b.peoples.map((c) => `
-      <li><span class="sw" style="background:${cultureCss(state.world, c.id)}"></span><span class="pn">${esc(c.name)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
+      <li><span class="sw" style="background:${cultureCss(state.world, c.id)}"></span><span class="pn">${esc(c.name)}${speciesTag(c.id)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
+    ${b.species.length && !(b.species.length === 1 && b.species[0].id === 'human') ? `<h3>Who they are</h3>
+      <p class="prose">${b.species.map((sp) => `${b.species.length > 1 ? `${Math.round(100 * sp.share)}% ` : ''}<b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>)`).join(', ')}. ${esc(b.species[0].blurb)}</p>` : ''}
     <h3>Backstory</h3>
     <p class="prose">${esc(b.origin)}${b.parent ? ` It grew out of ${link(b.parent)}.` : ''}</p>
     ${also.length ? `<p class="fine">Also known as ${also.map(esc).join(', ')}.</p>` : ''}
@@ -626,6 +653,33 @@ function spanYears(n) {
   return `${(n / d).toFixed(n / d < 10 ? 1 : 0)} ${w}`;
 }
 
+// " Neanderthal" after a people's name, unless they are human.
+function speciesTag(cid) {
+  const sp = cultureSpecies(state.world.cultures.get(cid));
+  return sp.id === 'human' ? '' : ` <em class="species" style="color:${speciesCss(state.world, cid)}">${esc(sp.name)}</em>`;
+}
+
+// Which lineage became sapient on this sheet: the peoples actually living here
+// once revealed, otherwise the one expected at its centre.
+function speciesNote(x, y) {
+  const st = tileStateAt(state.world, x, y, state.Y);
+  let sp = null;
+  if (st) {
+    const count = new Map();
+    for (const c of st.snap.culture) if (c) { const s = cultureSpecies(state.world.cultures.get(c)); count.set(s.name, [s, (count.get(s.name)?.[1] || 0) + 1]); }
+    const top = [...count.values()].sort((a, b) => b[1] - a[1])[0];
+    if (top) sp = top[0];
+  }
+  if (!sp) {
+    const id = speciesAt(state.world.seed, x + 0.5, y + 0.5);
+    sp = speciesInfo(id, divergence(state.world.seed, x + 0.5, y + 0.5, state.Y));
+  }
+  if (sp.id === 'human') return '';
+  const E = state.Y + eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);
+  const lead = E < -300000 ? `The lineage that will become sapient here: <b>${esc(sp.plural)}</b>` : `The sapient lineage here: <b>${esc(sp.plural)}</b>`;
+  return `<p class="climate">${lead} (<i>${esc(sp.sci)}</i>). ${esc(sp.blurb)}</p>`;
+}
+
 // When this sheet's history parted from Terra's, and how far ahead or behind it runs.
 function driftNote(x, y) {
   const shift = eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);
@@ -633,7 +687,7 @@ function driftNote(x, y) {
   if (Math.abs(shift) < 150) return '';
   const E = state.Y + shift;
   const when = pod > 4.5e9 ? ' (before Terra itself formed)' : '';
-  const own = E < -300000 ? ' No humans have arisen here yet.' : '';
+  const own = E < -300000 ? ' No sapient species has arisen here yet.' : '';
   return `<p class="drift">Its history parted from Terra's about ${spanYears(pod)} years ago${when}, and it runs about ${spanYears(shift)} years ${shift > 0 ? 'ahead of' : 'behind'} Terra.${own}</p>`;
 }
 
@@ -658,7 +712,7 @@ function peoplesHere(x, y, st, geo) {
   return `<section><h3>Peoples</h3><ul class="peoples">${list.map(([c, p]) => {
     const cu = state.world.cultures.get(c);
     const par = cu && cu.parent ? state.world.cultures.get(cu.parent) : null;
-    return `<li><span class="sw" style="background:${cultureCss(state.world, c)}"></span><span class="pn">${esc(cu ? cu.name : '?')}${par ? ` <em>from ${esc(par.name)}</em>` : ''}</span><span class="num">${Math.round((100 * p) / tot)}%</span></li>`;
+    return `<li><span class="sw" style="background:${cultureCss(state.world, c)}"></span><span class="pn">${esc(cu ? cu.name : '?')}${speciesTag(c)}${par ? ` <em>from ${esc(par.name)}</em>` : ''}</span><span class="num">${Math.round((100 * p) / tot)}%</span></li>`;
   }).join('')}</ul></section>`;
 }
 
@@ -706,6 +760,8 @@ function renderLegend() {
     L.innerHTML = '<span>States; grey land is stateless</span>';
   } else if (state.mode === 'culture') {
     L.innerHTML = '<span>Language families; related peoples share hues</span>';
+  } else if (state.mode === 'species') {
+    L.innerHTML = '<span>Sapient species; humans in slate</span>';
   } else {
     L.innerHTML = '<span>Climate and terrain at this date</span>';
   }

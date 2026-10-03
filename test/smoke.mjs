@@ -275,6 +275,29 @@ console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
   console.log(`endless plane: 18 far sheets generated; era shifts at 12/-6, 40/0, 0/80, -150/30 in 2000 CE: ${shifts.join(', ')}`);
 }
 
+// species: humans near Terra; other hominids past 300,000 years of divergence;
+// other branches of the tree of life past 2.5 million, each only once history
+// diverged before it branched off from ours; peoples carry their species
+{
+  const { availableSpecies, speciesAt, SPECIES_BY_ID } = await import('../src/species.js');
+  for (const x of [1, -1, 3]) assert.equal(speciesAt(20000, x + 0.5, 0.5), 'human', 'Terra\'s neighbours are human');
+  assert.deepEqual(availableSpecies(2e5).map(([s]) => s.id), ['human']);
+  const mid = availableSpecies(1e6).map(([s]) => s.id);
+  assert.ok(mid.includes('neanderthal') && !mid.includes('mammal') && !mid.includes('human'), 'only other hominids at 1 million years');
+  for (const pod of [3e6, 1e8, 4e8, 7e8, 2e9, 1e10]) {
+    for (const [s] of availableSpecies(pod)) assert.ok(s.branch <= pod, `${s.id} available before it branched off`);
+  }
+  assert.ok(availableSpecies(1e10).some(([s]) => s.id === 'prokaryote') && !availableSpecies(1e9).some(([s]) => s.id === 'prokaryote'));
+  const far = new World(20000);
+  buildEarth(far);
+  const h = generateTile(far, -333, 170, 1);   // a world of dolphin people, for this seed
+  const sp = new Map();
+  for (const c of h.snaps[4].culture) if (c) { const k = far.cultures.get(c).species || 'human'; sp.set(k, (sp.get(k) || 0) + 1); }
+  const top = [...sp].sort((a, b) => b[1] - a[1])[0];
+  console.log(`species: a far world's peoples are ${[...sp].map(([k, n]) => `${k} ${n}`).join(', ')}`);
+  assert.ok(top && SPECIES_BY_ID.get(top[0]).branch >= 2.5e6, 'a deeply diverged world is not peopled by hominids');
+}
+
 // round trip
 const json = world.serialize();
 const w2 = World.deserialize(json);

@@ -23,7 +23,8 @@ import { Rng, hashN } from './rng.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
 import { regionPower } from './stats.js';
 import { cloneSnap } from './world.js';
-import { humanPresence, development, targetStateShare, targetStateCount, federationAt, federationPolity, federationWorlds, effectiveYear, regionPos, sheetCentre } from './macro.js';
+import { speciesAt, speciesInfo } from './species.js';
+import { divergence, humanPresence, development, targetStateShare, targetStateCount, federationAt, federationPolity, federationWorlds, effectiveYear, regionPos, sheetCentre } from './macro.js';
 
 const DIR_NAME = { E: 'east', W: 'west', N: 'north', S: 'south' };
 // backward generation drifts technology towards this share of the era ceiling,
@@ -86,12 +87,18 @@ function namePolity(world, rng, cultureId, type) {
   return { name: rng.pick(forms[type] || forms.kingdom), adj, base };
 }
 
-function newCulture(world, rng, { parent = 0, origin = null, home = null } = {}) {
+// A new people. Daughter languages keep their parent's species; a people arising
+// from scratch belongs to the lineage that became sapient where it arose.
+function newCulture(world, rng, { parent = 0, origin = null, home = null, species = 'human', pod = 0 } = {}) {
   const par = parent ? world.cultures.get(parent) : null;
-  const phon = par && par.phon ? mutatePhon(par.phon, rng) : randomPhon(rng);
+  const sp = par ? par.species || 'human' : species;
+  const voice = sp === 'human' || sp === 'archaic' ? null : speciesInfo(sp).voice;
+  const phon = par && par.phon ? mutatePhon(par.phon, rng) : randomPhon(rng, voice);
   const name = adjective(word(phon, rng, 2), phon, rng);
   const hue = par ? (par.hue + rng.range(-30, 30) + 360) % 360 : rng.int(0, 359);
-  return world.addCulture({ name, adj: name, phon, hue: Math.round(hue), parent, origin, home });
+  const rec = { name, adj: name, phon, hue: Math.round(hue), parent, origin, home };
+  if (sp !== 'human') { rec.species = sp; rec.pod = par ? par.pod : pod; }
+  return world.addCulture(rec);
 }
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -172,6 +179,11 @@ class TileSim {
   pname(id, Y) { return this.world.polityName(id, Y); }
   pref(id, Y, cap = false) { return this.world.polityRef(id, Y, cap); }
   cname(id) { return this.world.cultureName(id); }
+  // the sapient lineage where province r lies, and how far back history parted there
+  lineage(r) {
+    const [gx, gy] = this.rpos[r];
+    return { species: speciesAt(this.world.seed, gx, gy), pod: divergence(this.world.seed, gx, gy, 2000) };
+  }
   isHome(pid) { const p = this.pol(pid); return p && p.capital && p.capital.x === this.x && p.capital.y === this.y; }
 
   cap(r, Y) { return regionCapacity(this.R[r], Y) * humanPresence(this.Er(r, Y)); }
@@ -1008,7 +1020,7 @@ class TileSim {
     for (let i = 0; i < cluster.length && cluster.length < want; i++) {
       for (const o of this.R[cluster[i]].adj) if (set.has(o) && !seen.has(o)) { seen.add(o); cluster.push(o); }
     }
-    const old = newCulture(this.world, rng, { origin: null, home: this.pos });
+    const old = newCulture(this.world, rng, { origin: null, home: this.pos, ...this.lineage(seed) });
     for (const r of cluster) culture[r] = old;
     this.ev(Y - rng.int(0, 200), 'culture', `The last ${this.cname(old)}-speaking communities around ${this.rname(seed)} are absorbed by the ${this.cname(c)}.`);
   }
@@ -1234,14 +1246,14 @@ class TileSim {
     rng.shuffle(habitable);
     for (const r of habitable.slice(0, k)) {
       if (culture[r]) continue;
-      culture[r] = newCulture(this.world, rng, { origin: null, home: this.pos });
+      culture[r] = newCulture(this.world, rng, { origin: null, home: this.pos, ...this.lineage(r) });
       order.push(r);
     }
     this.floodFill(culture, order, (r) => this.cap(r, Y) >= 0.03);
     // stragglers on unreachable islands get their own peoples
     for (const r of habitable) {
       if (culture[r]) continue;
-      culture[r] = newCulture(this.world, rng, { origin: null, home: this.pos });
+      culture[r] = newCulture(this.world, rng, { origin: null, home: this.pos, ...this.lineage(r) });
       this.floodFill(culture, [r], (q) => this.cap(q, Y) >= 0.03);
     }
     for (let r = 0; r < n; r++) if (!culture[r]) tech[r] = 0;
@@ -1302,7 +1314,7 @@ class TileSim {
       if (rec && rec.origin != null && rec.origin > start) {
         // born during this millennium from its parent (or from an older people)
         const par = rec.parent && this.world.cultures.has(rec.parent) ? rec.parent
-          : newCulture(this.world, rng, { origin: null, home: this.pos });
+          : newCulture(this.world, rng, { origin: null, home: this.pos, ...this.lineage(regs[0]) });
         for (const r of regs) culture[r] = par;
         this.emerging.push({ c, from: par, regs, year: rec.origin });
         continue;
@@ -1319,7 +1331,7 @@ class TileSim {
       if (cluster.length === regs.length) cluster.pop();
       let sub = 0;
       for (const r of cluster) for (const o of this.R[r].adj) if (!set.has(o) && T.culture[o]) sub = T.culture[o];
-      if (!sub || rng.chance(0.55)) sub = newCulture(this.world, rng, { origin: null, home: this.pos });
+      if (!sub || rng.chance(0.55)) sub = newCulture(this.world, rng, { origin: null, home: this.pos, ...this.lineage(cluster[0]) });
       for (const r of cluster) culture[r] = sub;
     }
     for (let r = 0; r < n; r++) if (!culture[r]) tech[r] = 0;
