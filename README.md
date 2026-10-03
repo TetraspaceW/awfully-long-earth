@@ -65,6 +65,18 @@ the tile is generated **in reverse**. Time runs backwards from the known future 
 
 Read forwards, the result is continuous.
 
+When **both** the past and the future are known (filling a gap), the millennium is
+generated twice: forwards from the past and in reverse from the future. Each
+province then hands over from the forward history to the reverse one at its own
+moment. These moments are spatially smooth, cluster by the state that ends up
+holding the province, and fall where one of the two histories changes that
+province anyway. The two ends' disagreement is therefore spread over the
+millennium and reads as states rising at others' expense.
+
+Languages are slow variables. A tile with no adjacent millennium inherits its
+peoples from the nearest surveyed millennium on the same sheet, up to five
+away, so separately surveyed eras agree about who lives there.
+
 With no past or future face, the tile still has to start like one reached by
 simulating forwards. A rough starting state is drawn from the era's distribution,
 shaped by whichever side faces are known. The full dynamics then run silently at

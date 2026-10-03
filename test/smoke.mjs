@@ -135,6 +135,27 @@ for (const t of [-1, -2, -3]) {
   }
 }
 
+// filling a gap between a known past and a known future: change is spread over
+// the millennium instead of piling up at the end, and peoples stay put
+{
+  const ch = (a, b, f) => { let n = 0, c = 0; for (let i = 0; i < a[f].length; i++) { if (!a.culture[i] && !b.culture[i]) continue; n++; if (a[f][i] !== b[f][i]) c++; } return c / Math.max(1, n); };
+  const own = [0, 0, 0, 0], cul = [0, 0, 0, 0];
+  let runs = 0;
+  for (const seed of [1, 2, 3]) for (const [x, y, T] of [[3, 2, -3], [-2, 1, 0]]) {
+    const w = new World(seed); buildEarth(w);
+    generateTile(w, x, y, T - 1); generateTile(w, x, y, T + 1);
+    const g = generateTile(w, x, y, T);
+    assert.deepEqual([...g.snaps[0].owner], [...w.tile(x, y, T - 1).snaps[4].owner], 'gap tile must start where its past ends');
+    assert.deepEqual([...g.snaps[4].owner], [...w.tile(x, y, T + 1).snaps[0].owner], 'gap tile must end where its future starts');
+    for (let k = 0; k < 4; k++) { own[k] += ch(g.snaps[k], g.snaps[k + 1], 'owner'); cul[k] += ch(g.snaps[k], g.snaps[k + 1], 'culture'); }
+    runs++;
+  }
+  const o = own.map((v) => v / runs), c = cul.map((v) => v / runs);
+  console.log(`gap tiles: provinces changing hands ${o.map((v) => v.toFixed(2)).join(' ')}; peoples ${c.map((v) => v.toFixed(2)).join(' ')}`);
+  assert.ok(o[3] < 1.6 * Math.min(...o), 'gap tile change piles up at the end');
+  assert.ok(Math.max(...c) < 0.12, 'gap tile replaces too many peoples');
+}
+
 // drift from Terra: tiny next to Terra's record, large far away in space and time
 {
   let near = 0, farDeep = 0;
