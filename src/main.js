@@ -596,6 +596,8 @@ $('copyCode').addEventListener('click', async () => {
     ta.select(); $('dlgMsg').textContent = 'Select the code above and copy it.';
   }
 });
+// embedded viewers can't save files; the world code covers that case
+try { if (window.self !== window.top) $('download').hidden = true; } catch (e) { $('download').hidden = true; }
 $('download').addEventListener('click', async () => {
   const blob = new Blob([await gzip(state.world.serialize())], { type: 'text/plain' });
   const a = document.createElement('a');
