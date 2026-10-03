@@ -1,17 +1,20 @@
-// Browser UI: a pannable map of Big Earth's sheets, a time control, and a panel
-// for the selected sheet. Click a "+" sheet to survey (generate) it.
+// Browser UI: a pannable map of Big Earth's sheets in 2000 CE and a panel for the
+// selected sheet. Click a "+" sheet to reveal (generate) it.
 
-import { W, H, ROW_MIN, ROW_MAX, COLS, wrapX, tileKey, formatYear, formatRange, eraName, isSpeculative, HISTORY_START } from './constants.js';
+import { W, H, ROW_MIN, ROW_MAX, COLS, wrapX, tileKey, formatYear, eraName } from './constants.js';
 import { getGeo, BIOME_NAMES, cellBiome, neighbourPos } from './geo.js';
 import { World } from './world.js';
 import { buildEarth, prepareEarthGeo } from './earth.js';
-import { generateTile, canGenerate, regionName, T_MIN, T_MAX } from './sim.js';
+import { generateTile, canGenerate, regionName } from './sim.js';
 import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
 import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './render.js';
 import { eraShift } from './macro.js';
 import { nationProfile } from './bio.js';
 
-const STORE = 'awfully-long-earth:world';
+const STORE = 'awfully-long-earth:world-2000';
+// Big Earth is shown at a single moment, 2000 CE: the end of each sheet's
+// 1000-2000 CE tile. That millennium is still simulated, and becomes backstory.
+const LAYER = 1;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -100,12 +103,7 @@ function tileImage(x, y, st) {
   return c;
 }
 
-// which millennium a click on an empty sheet should survey
-function layerFor(x, y) {
-  const t = Math.floor(state.Y / 1000);
-  if (state.Y % 1000 === 0 && canGenerate(state.world, x, y, t - 1)) return t - 1;
-  return t;
-}
+function layerFor() { return LAYER; }
 
 const toScreen = (tx, ty) => [(tx - state.cam.cx) * state.cam.scale + vw / 2, (ty - state.cam.cy) * state.cam.scale / 2 + vh / 2];
 const toTile = (sx, sy) => [(sx - vw / 2) / state.cam.scale + state.cam.cx, ((sy - vh / 2) * 2) / state.cam.scale + state.cam.cy];
@@ -219,7 +217,7 @@ function drawFog(x, y, sx, sy, s, th) {
       ctx.fillStyle = '#e9edf0';
       ctx.font = `500 12px ${css('--font-ui')}`;
       ctx.textAlign = 'center';
-      ctx.fillText(`Survey ${formatRange(t)}`, cx, cy + r + 16);
+      ctx.fillText('Reveal this world', cx, cy + r + 16);
       ctx.textAlign = 'left';
     }
   }
@@ -286,8 +284,8 @@ function hover(sx, sy) {
   if (!st) {
     const t = layerFor(c.x, c.y);
     html = canGenerate(state.world, c.x, c.y, t)
-      ? `<b>${esc(state.world.tileName(c.x, c.y))}</b><span>Unsurveyed. Click to fill ${esc(formatRange(t))} from its neighbours.</span>`
-      : `<b>Unsurveyed</b><span>Survey a neighbouring sheet first.</span>`;
+      ? `<b>${esc(state.world.tileName(c.x, c.y))}</b><span>Unrevealed. Click to generate it from the worlds around it.</span>`
+      : `<b>Unrevealed</b><span>Reveal a neighbouring sheet first.</span>`;
   } else {
     const r = geo.region[c.k];
     const biome = BIOME_NAMES[cellBiome(geo, c.k, state.Y)];
@@ -337,53 +335,12 @@ function survey(x, y, t, quiet = false) {
   imgCache.clear(); clearColorCache();
   if (!quiet) {
     state.sel = { x, y };
-    // show the new millennium: jump into its middle unless we're already inside it
-    if (Math.floor(state.Y / 1000) !== t || state.Y % 1000 === 0) state.Y = t * 1000 + 500;
-    toast(`Surveyed ${state.world.tileName(x, y)}, ${formatRange(t)}`);
-    syncTime(); draw(); renderPanel();
+    toast(`Revealed ${state.world.tileName(x, y)}`);
+    draw(); renderPanel();
   }
   scheduleSave();
   return true;
 }
-
-// ------------------------------------------------------------- time
-
-function timeBounds() {
-  const { lo, hi } = state.world.timeRange();
-  return { min: Math.max(T_MIN, lo - 1) * 1000, max: Math.min(T_MAX + 1, hi + 2) * 1000 };
-}
-
-function syncTime() {
-  const { min, max } = timeBounds();
-  const sl = $('year');
-  sl.min = min; sl.max = max; sl.step = 250; sl.value = state.Y;
-  $('yearLabel').textContent = formatYear(state.Y);
-  const t = Math.floor(state.Y / 1000);
-  $('yearSub').textContent = state.Y % 1000 === 0 ? `End of ${formatRange(t - 1)} · start of the next` : formatRange(t);
-  $('yearLabel').classList.toggle('spec', state.Y > 2000);
-}
-
-function setYear(Y) {
-  const { min, max } = timeBounds();
-  state.Y = Math.max(min, Math.min(max, Math.round(Y / 250) * 250));
-  syncTime(); draw(); renderPanel();
-}
-
-$('year').addEventListener('input', (e) => setYear(Number(e.target.value)));
-$('back1000').addEventListener('click', () => setYear(state.Y - 1000));
-$('back250').addEventListener('click', () => setYear(state.Y - 250));
-$('fwd250').addEventListener('click', () => setYear(state.Y + 250));
-$('fwd1000').addEventListener('click', () => setYear(state.Y + 1000));
-let playing = 0;
-$('play').addEventListener('click', () => {
-  if (playing) { clearInterval(playing); playing = 0; $('play').textContent = 'Play'; return; }
-  $('play').textContent = 'Pause';
-  playing = setInterval(() => {
-    const { max } = timeBounds();
-    if (state.Y + 250 > max) { clearInterval(playing); playing = 0; $('play').textContent = 'Play'; return; }
-    setYear(state.Y + 250);
-  }, 700);
-});
 
 for (const b of document.querySelectorAll('[data-mode]')) {
   b.addEventListener('click', () => {
@@ -410,21 +367,17 @@ function renderPanel() {
   const st = tileStateAt(world, x, y, state.Y);
   const t = st ? st.hist.t : layerFor(x, y);
   const geo = getGeo(x, y);
-  const earth = geo.earth;
-  let chip = '<span class="chip">Unsurveyed</span>';
-  if (st) chip = earth && !st.hist.fixed && !isSpeculative(t) ? '<span class="chip gen">Earth, alternate deep past</span>'
-    : st.hist.fixed ? '<span class="chip real">Real Earth record</span>'
-      : isSpeculative(t) ? '<span class="chip spec">Speculative future</span>' : '<span class="chip gen">Generated</span>';
+  let chip = '<span class="chip">Unrevealed</span>';
+  if (st) chip = st.hist.fixed ? '<span class="chip real">Real Earth</span>' : '<span class="chip gen">Generated</span>';
 
-  const extendBtn = (dx, dy, dt, label, arrow) => {
+  const extendBtn = (dx, dy, label, arrow) => {
     let nx = x, ny = y + dy;
     if (dx) nx = wrapX(x + dx);
     const pole = ny < ROW_MIN || ny > ROW_MAX;
-    const tt = t + dt;
-    const exists = !pole && world.hasTile(nx, ny, tt);
-    const ok = !pole && canGenerate(world, nx, ny, tt) && (dt !== 0 || st);
-    const reason = pole ? 'Pole' : exists ? `Go to ${formatRange(tt)}` : ok ? `Survey ${formatRange(tt)}` : 'Not adjacent';
-    const attr = exists ? `data-go="${nx},${ny},${tt}"` : `data-ext="${nx},${ny},${tt}"`;
+    const exists = !pole && world.hasTile(nx, ny, t);
+    const ok = !pole && st && canGenerate(world, nx, ny, t);
+    const reason = pole ? 'Pole' : exists ? 'Go there' : ok ? 'Reveal' : 'Not adjacent';
+    const attr = exists ? `data-go="${nx},${ny}"` : `data-ext="${nx},${ny}"`;
     return `<button class="ext ${exists ? 'go' : ''}" ${ok || exists ? '' : 'disabled'} ${attr} title="${esc(reason)}">
       <span class="arrow" aria-hidden="true">${arrow}</span><span>${label}</span><small>${esc(reason)}</small></button>`;
   };
@@ -432,24 +385,20 @@ function renderPanel() {
   let html = `<header class="sheet">
     <div class="sheet-id">Sheet ${x >= 0 ? '+' : ''}${x} / ${y >= 0 ? '+' : ''}${y}</div>
     <h2>${esc(world.tileName(x, y))}</h2>
-    <div class="meta">${chip}<span>${esc(formatRange(t))}</span></div>
+    <div class="meta">${chip}<span>2000 CE</span></div>
     ${driftNote(x, y)}
   </header>
   <section>
-    <h3>Extend the survey</h3>
+    <h3>Reveal neighbouring worlds</h3>
     <div class="compass">
-      ${extendBtn(0, -1, 0, 'North', '↑')}
-      ${extendBtn(-1, 0, 0, 'West', '←')}
-      ${extendBtn(1, 0, 0, 'East', '→')}
-      ${extendBtn(0, 1, 0, 'South', '↓')}
-      ${extendBtn(0, 0, -1, 'Earlier', '⟲')}
-      ${extendBtn(0, 0, 1, 'Later', '⟳')}
+      ${extendBtn(0, -1, 'North', '↑')}
+      ${extendBtn(-1, 0, 'West', '←')}
+      ${extendBtn(1, 0, 'East', '→')}
+      ${extendBtn(0, 1, 'South', '↓')}
     </div>
     <div class="row-btns">
-      <button id="ring" ${st ? '' : 'disabled'}>Survey all neighbours</button>
-      <button id="deep" ${st || world.hasTile(x, y, t + 1) ? '' : 'disabled'}>Back to ${formatYear(HISTORY_START)}</button>
+      <button id="ring" ${st ? '' : 'disabled'}>Reveal all neighbours</button>
     </div>
-    ${timeColumn(x, y)}
   </section>`;
 
   if (st) {
@@ -457,8 +406,8 @@ function renderPanel() {
     html += peoplesHere(x, y, st, geo);
     html += chronicle(st.hist);
   } else {
-    html += `<section><p class="note">This sheet has not been surveyed for ${esc(formatRange(t))}.
-      ${canGenerate(world, x, y, t) ? 'Click it on the map, or use the buttons above, to fill it in from the sheets around it.' : 'Survey a sheet next to it (in space or time) first.'}</p></section>`;
+    html += `<section><p class="note">This world has not been revealed yet.
+      ${canGenerate(world, x, y, t) ? 'Click it on the map to generate it from the worlds around it.' : 'Reveal a world next to it first.'}</p></section>`;
   }
   html += globalPowers();
   if (state.nation) html = nationCard(state.nation) + html;
@@ -466,51 +415,31 @@ function renderPanel() {
 
   for (const b of $('panel').querySelectorAll('[data-ext]')) {
     b.addEventListener('click', () => {
-      const [nx, ny, nt] = b.dataset.ext.split(',').map(Number);
-      survey(nx, ny, nt);
+      const [nx, ny] = b.dataset.ext.split(',').map(Number);
+      survey(nx, ny, LAYER);
     });
   }
   for (const b of $('panel').querySelectorAll('[data-go]')) {
     b.addEventListener('click', () => {
-      const [nx, ny, nt] = b.dataset.go.split(',').map(Number);
+      const [nx, ny] = b.dataset.go.split(',').map(Number);
       state.sel = { x: nx, y: ny };
-      if (Math.floor(state.Y / 1000) !== nt || state.Y % 1000 === 0) state.Y = nt * 1000 + 500;
-      syncTime(); draw(); renderPanel();
+      draw(); renderPanel();
     });
   }
-  for (const b of $('panel').querySelectorAll('[data-year]')) b.addEventListener('click', () => setYear(Number(b.dataset.year)));
   for (const b of $('panel').querySelectorAll('[data-nation]')) {
     b.addEventListener('click', () => { openNation(Number(b.dataset.nation)); });
     b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNation(Number(b.dataset.nation)); } });
   }
   $('panel').querySelector('.allstates')?.addEventListener('toggle', (e) => { state.allOpen = e.target.open; });
   $('closeNation')?.addEventListener('click', () => { state.nation = 0; draw(); renderPanel(); });
-  wireChart();
   $('ring')?.addEventListener('click', () => surveyRing(x, y, t));
-  $('deep')?.addEventListener('click', () => surveyDeep(x, y, t));
-  const cur = $('panel').querySelector('.ev.now');
-  const box = cur && cur.parentElement;
-  if (box && box.scrollHeight > box.clientHeight) box.scrollTop = cur.offsetTop - box.offsetTop - box.clientHeight / 3;
-}
-
-function timeColumn(x, y) {
-  const { lo, hi } = state.world.timeRange();
-  const a = Math.min(lo, -20), b = Math.max(hi, 1);
-  let cells = '';
-  for (let t = a; t <= b; t++) {
-    const has = state.world.hasTile(x, y, t);
-    const cur = Math.floor((state.Y - (state.Y % 1000 === 0 && !state.world.hasTile(x, y, Math.floor(state.Y / 1000)) ? 1 : 0)) / 1000) === t;
-    cells += `<button class="tc ${has ? 'has' : ''} ${cur ? 'cur' : ''} ${t >= 2 ? 'spec' : ''}" data-year="${t * 1000 + 500}" title="${esc(formatRange(t))}${has ? '' : ' · unsurveyed'}" aria-label="${esc(formatRange(t))}"></button>`;
-  }
-  return `<div class="timecol"><div class="tc-row">${cells}</div>
-    <div class="tc-axis"><span>${esc(formatYear(a * 1000))}</span><span>${esc(formatYear((b + 1) * 1000))}</span></div></div>`;
 }
 
 function powersHere(x, y) {
   const list = players(state.world, state.Y, new Set([`${x},${y}`]), 8);
-  if (!list.length) return `<section><h3>Powers in ${formatYear(state.Y)}</h3><p class="note">No states here yet: bands, villages and chiefdoms.</p></section>`;
+  if (!list.length) return `<section><h3>Powers in this world</h3><p class="note">No states here: bands, villages and chiefdoms.</p></section>`;
   const max = list[0].gdp || 1;
-  return `<section><h3>Powers here in ${formatYear(state.Y)}</h3><ol class="powers">${list.map((p) => `
+  return `<section><h3>Powers in this world</h3><ol class="powers">${list.map((p) => `
     <li ${p.bloc ? '' : `data-nation="${p.id}" class="pickable" tabindex="0" title="Open profile"`}><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
       <span class="pn">${esc(p.name)}${p.bloc ? ` <em>bloc of ${p.members.length}</em>` : ''}${worldsTag(p)}</span>
       <span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
@@ -565,83 +494,25 @@ function nationCard(pid) {
       ${stat(b.worlds > 1 ? 'Worlds' : 'Capital', b.worlds > 1 ? b.worlds : esc(b.capital))}${stat('Era', esc(b.era))}
     </div>` : ''}
     <h3>How it is governed</h3>
-    <p class="prose">${esc(b.government)}${b.alive && !b.p.macro && !b.p.earth ? ` In ${esc(formatYear(state.Y))} it is led by ${esc(b.ruler)}.` : ''}</p>
+    <p class="prose">${esc(b.government)}${b.alive && !b.p.macro && !b.p.earth ? ` It is led by ${esc(b.ruler)}.` : ''}</p>
     ${b.alive ? `<h3>What it can do</h3><p class="prose">${esc(b.life)}</p>` : ''}
     ${b.peoples.length ? `<h3>Peoples</h3><ul class="peoples">${b.peoples.map((c) => `
       <li><span class="sw" style="background:${cultureCss(state.world, c.id)}"></span><span class="pn">${esc(c.name)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
-    <h3>How it emerged</h3>
+    <h3>Backstory</h3>
     <p class="prose">${esc(b.origin)}${b.parent ? ` It grew out of ${link(b.parent)}.` : ''}</p>
     ${also.length ? `<p class="fine">Also known as ${also.map(esc).join(', ')}.</p>` : ''}
-    ${b.series.length > 1 ? `<h3>Extent over time</h3>${extentChart(b)}` : ''}
     ${evs.length ? `<h3>Key events</h3><ol class="chron short">${evs.map((e) => `
-      <li class="ev k-${e.kind}"><button class="yr" data-year="${e.y}">${esc(formatYear(e.y))}</button><span class="kind">${esc(e.where)}</span><p>${esc(e.text)}</p></li>`).join('')}</ol>` : ''}
+      <li class="ev k-${e.kind}"><span class="yr">${esc(formatYear(e.y))}</span><span class="kind">${esc(e.where)}</span><p>${esc(e.text)}</p></li>`).join('')}</ol>` : ''}
     ${b.successors.length ? `<p class="prose">Successors: ${b.successors.map(link).join(', ')}.</p>` : ''}
   </section>`;
 }
 
-// Provinces held over time, as a small area chart with a hover readout.
-function extentChart(b) {
-  const s = b.series, w = 340, h = 96, pad = { l: 30, r: 8, t: 8, b: 18 };
-  const x0 = s[0].Y, x1 = s[s.length - 1].Y, ymax = Math.max(...s.map((d) => d.prov));
-  const X = (Y) => pad.l + ((Y - x0) / Math.max(1, x1 - x0)) * (w - pad.l - pad.r);
-  const Yp = (v) => pad.t + (1 - v / ymax) * (h - pad.t - pad.b);
-  const line = s.map((d, i) => `${i ? 'L' : 'M'}${X(d.Y).toFixed(1)},${Yp(d.prov).toFixed(1)}`).join('');
-  const area = `${line}L${X(x1).toFixed(1)},${Yp(0)}L${X(x0).toFixed(1)},${Yp(0)}Z`;
-  const now = state.Y >= x0 && state.Y <= x1 ? `<line class="now" x1="${X(state.Y)}" x2="${X(state.Y)}" y1="${pad.t}" y2="${Yp(0)}"/>` : '';
-  const cur = s.reduce((a, d) => (Math.abs(d.Y - state.Y) < Math.abs(a.Y - state.Y) ? d : a), s[0]);
-  const data = esc(JSON.stringify(s.map((d) => [d.Y, d.prov, Math.round(d.pop)])));
-  return `<div class="chart" data-series="${data}" data-x0="${x0}" data-x1="${x1}" data-ymax="${ymax}">
-    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Provinces held from ${esc(formatYear(x0))} to ${esc(formatYear(x1))}, peaking at ${b.peak.prov} in ${esc(formatYear(b.peak.Y))}">
-      <line class="grid" x1="${pad.l}" x2="${w - pad.r}" y1="${Yp(ymax)}" y2="${Yp(ymax)}"/>
-      <line class="axis" x1="${pad.l}" x2="${w - pad.r}" y1="${Yp(0)}" y2="${Yp(0)}"/>
-      <text x="${pad.l - 4}" y="${Yp(ymax) + 3}" text-anchor="end">${ymax}</text>
-      <text x="${pad.l - 4}" y="${Yp(0) + 3}" text-anchor="end">0</text>
-      <text x="${pad.l}" y="${h - 4}">${esc(formatYear(x0))}</text>
-      <text x="${w - pad.r}" y="${h - 4}" text-anchor="end">${esc(formatYear(x1))}</text>
-      <path class="area" d="${area}"/><path class="line" d="${line}"/>
-      ${now}<circle class="dot" cx="${X(cur.Y)}" cy="${Yp(cur.prov)}" r="4"/>
-      <circle class="hover" r="4" cx="-10" cy="-10"/>
-    </svg>
-    <div class="chart-tip" hidden></div>
-    <p class="fine">Provinces held, across all surveyed sheets. Peak: ${b.peak.prov} province${b.peak.prov === 1 ? '' : 's'} around ${esc(formatYear(b.peak.Y))}.</p>
-  </div>`;
-}
-
-function wireChart() {
-  const box = $('panel').querySelector('.chart');
-  if (!box) return;
-  const s = JSON.parse(box.dataset.series), x0 = +box.dataset.x0, x1 = +box.dataset.x1, ymax = +box.dataset.ymax;
-  const svg = box.querySelector('svg'), tip = box.querySelector('.chart-tip'), dot = box.querySelector('circle.hover');
-  const w = 340, h = 96, pad = { l: 30, r: 8, t: 8, b: 18 };
-  const X = (Y) => pad.l + ((Y - x0) / Math.max(1, x1 - x0)) * (w - pad.l - pad.r);
-  const Yp = (v) => pad.t + (1 - v / ymax) * (h - pad.t - pad.b);
-  const move = (ev) => {
-    const rect = svg.getBoundingClientRect();
-    const vx = ((ev.clientX - rect.left) / rect.width) * w;
-    const d = s.reduce((a, q) => (Math.abs(X(q[0]) - vx) < Math.abs(X(a[0]) - vx) ? q : a), s[0]);
-    dot.setAttribute('cx', X(d[0])); dot.setAttribute('cy', Yp(d[1]));
-    tip.hidden = false;
-    tip.innerHTML = `<b>${esc(formatYear(d[0]))}</b> ${d[1]} province${d[1] === 1 ? '' : 's'} · ${fmtPop(d[2])} people`;
-    tip.style.left = `${Math.min(rect.width - tip.offsetWidth, Math.max(0, (X(d[0]) / w) * rect.width - tip.offsetWidth / 2))}px`;
-  };
-  svg.addEventListener('pointermove', move);
-  svg.addEventListener('pointerleave', () => { tip.hidden = true; dot.setAttribute('cx', -10); });
-  svg.addEventListener('click', (ev) => {
-    const rect = svg.getBoundingClientRect();
-    const vx = ((ev.clientX - rect.left) / rect.width) * w;
-    const d = s.reduce((a, q) => (Math.abs(X(q[0]) - vx) < Math.abs(X(a[0]) - vx) ? q : a), s[0]);
-    setYear(d[0]);
-  });
-}
-
-// How far this sheet's history has drifted from Terra's timeline at this date.
+// How far this sheet's development has drifted from Terra's.
 function driftNote(x, y) {
   const shift = eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);
   if (Math.abs(shift) < 150) return '';
-  const rounded = Math.round(shift / 50) * 50;
-  const E = state.Y + rounded;
-  const yrs = Math.abs(rounded).toLocaleString('en-US');
-  return `<p class="drift">At its centre, living in its own ${esc(formatYear(E))}: ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's timeline</p>`;
+  const yrs = Math.abs(Math.round(shift / 50) * 50).toLocaleString('en-US');
+  return `<p class="drift">Its development runs about ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's.</p>`;
 }
 
 function worldsTag(p) {
@@ -671,20 +542,20 @@ function peoplesHere(x, y, st, geo) {
 
 const KIND = { polity: 'State', war: 'War', culture: 'People', tech: 'Ideas', disaster: 'Disaster', contact: 'Contact', earth: 'Record' };
 
+// The sheet's last millennium, as backstory for how its present came about.
 function chronicle(hist) {
-  const evs = hist.events;
-  if (!evs.length) return '<section><h3>Chronicle</h3><p class="note">A quiet millennium.</p></section>';
-  const near = evs.reduce((best, e) => (Math.abs(e.y - state.Y) < Math.abs(best.y - state.Y) ? e : best), evs[0]);
-  return `<section><h3>Chronicle, ${esc(formatRange(hist.t))}</h3><ol class="chron">${evs.map((e) => `
-    <li class="ev k-${e.kind} ${e === near ? 'now' : ''}"><button class="yr" data-year="${e.y}" title="Go to ${esc(formatYear(e.y))}">${esc(formatYear(e.y))}</button>
-    <span class="kind">${KIND[e.kind] || ''}</span><p>${esc(e.text)}</p></li>`).join('')}</ol></section>`;
+  const evs = hist.events.filter((e) => e.y <= 2000);
+  if (!evs.length) return '<section><h3>How this world came to be</h3><p class="note">A quiet millennium.</p></section>';
+  return `<section><details class="backstory" open><summary>How this world came to be</summary><ol class="chron">${evs.map((e) => `
+    <li class="ev k-${e.kind}"><span class="yr">${esc(formatYear(e.y))}</span>
+    <span class="kind">${KIND[e.kind] || ''}</span><p>${esc(e.text)}</p></li>`).join('')}</ol></details></section>`;
 }
 
 function globalPowers() {
   const list = players(state.world, state.Y, null, 10);
   if (!list.length) return '';
   const max = list[0].gdp || 1;
-  return `<section><h3>Leading powers of surveyed Big Earth, ${formatYear(state.Y)}</h3><ol class="powers">${list.map((p) => `
+  return `<section><h3>Leading powers of revealed Big Earth</h3><ol class="powers">${list.map((p) => `
     <li ${p.bloc ? '' : `data-nation="${p.id}" class="pickable" tabindex="0" title="Open profile"`}><span class="sw" style="background:${p.bloc ? 'var(--marker)' : polityCss(state.world, p.id)}"></span>
       <span class="pn">${esc(p.name)}${worldsTag(p)}</span><span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol></section>`;
@@ -696,25 +567,7 @@ async function surveyRing(x, y, t) {
     if (p) survey(p.x, p.y, t, true);
     await tick();
   }
-  imgCache.clear(); toast('Surveyed the neighbouring sheets'); draw(); renderPanel();
-}
-
-async function surveyDeep(x, y, t) {
-  if (state.busy) return;
-  state.busy = true;
-  const btn = $('deep');
-  let n = 0;
-  for (let tt = t; tt >= HISTORY_START / 1000; tt--) {
-    if (state.world.hasTile(x, y, tt)) continue;
-    if (!survey(x, y, tt, true)) break;
-    n++;
-    if (btn) btn.textContent = `Surveying ${formatYear(tt * 1000)}…`;
-    await tick();
-  }
-  state.busy = false;
-  imgCache.clear(); syncTime();
-  toast(n ? `Surveyed ${n} millennia of ${state.world.tileName(x, y)}` : 'Already surveyed');
-  draw(); renderPanel();
+  imgCache.clear(); toast('Revealed the neighbouring worlds'); draw(); renderPanel();
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -793,7 +646,7 @@ async function adopt(w) {
   imgCache.clear(); clearColorCache();
   state.Y = 2000; state.sel = { x: 0, y: 0 };
   $('seed').value = w.seed;
-  syncTime(); draw(); renderPanel(); scheduleSave();
+  draw(); renderPanel(); scheduleSave();
 }
 
 window.addEventListener('resize', resize);
@@ -809,7 +662,7 @@ window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change',
   $('seed').value = w.seed;
   resize();
   state.cam = { cx: 0.5, cy: 0.5, scale: defaultScale() };
-  renderLegend(); syncTime(); draw(); renderPanel();
+  renderLegend(); draw(); renderPanel();
   if (!saved) scheduleSave();
   $('loading').hidden = true;
 })();

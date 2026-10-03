@@ -48,15 +48,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
 .brand h1 { margin: 0; font: 600 21px/1.1 var(--font-display); letter-spacing: 0.01em; }
 .brand .sub { font: 400 12px var(--font-mono); color: var(--fg-dim); }
+.when { flex: 1 1 auto; font: 600 20px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
 
-.time { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 360px; min-width: 0; }
-.time .yr { display: grid; flex: 0 0 12.5em; min-width: 0; }
-#yearLabel { font: 600 20px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
-#yearLabel.spec { color: var(--spec); }
-#yearSub { font: 400 11px var(--font-mono); color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#year { flex: 1; min-width: 80px; accent-color: var(--marker); }
-.tbtn { border: 1px solid var(--rule); background: var(--bg); border-radius: 4px; padding: 3px 8px; cursor: pointer; font-family: var(--font-mono); font-size: 12px; }
-.tbtn:hover { border-color: var(--marker); }
 
 .modes { display: flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; flex-wrap: wrap; }
 .modes button { border: 0; background: transparent; padding: 5px 10px; cursor: pointer; letter-spacing: 0.02em; }
@@ -109,17 +102,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .linkish { border: 0; background: none; padding: 0; font: inherit; color: var(--marker); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .pickable { cursor: pointer; border-radius: 3px; }
 .pickable:hover .pn, .pickable:focus-visible .pn { color: var(--marker); }
-.chart { position: relative; display: grid; gap: 4px; }
-.chart svg { width: 100%; height: auto; display: block; touch-action: none; }
-.chart svg text { font: 400 10px var(--font-mono); fill: var(--fg-dim); }
-.chart .grid { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
-.chart .axis { stroke: var(--fg-dim); stroke-width: 1; }
-.chart .area { fill: var(--marker); opacity: 0.16; }
-.chart .line { fill: none; stroke: var(--marker); stroke-width: 2; stroke-linejoin: round; }
-.chart .now { stroke: var(--fg-dim); stroke-width: 1; stroke-dasharray: 3 3; }
-.chart .dot { fill: var(--marker); stroke: var(--panel); stroke-width: 2; }
-.chart .hover { fill: var(--panel); stroke: var(--marker); stroke-width: 2; }
-.chart-tip { position: absolute; top: -4px; padding: 4px 8px; background: var(--fg); color: var(--panel); border-radius: 4px; font-size: 12px; pointer-events: none; white-space: nowrap; }
 .chron.short { max-height: 300px; }
 .allstates summary { cursor: pointer; color: var(--marker); font-size: 13px; padding: 4px 0; }
 .allstates summary:focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
@@ -131,7 +113,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .chip.gen { border-color: var(--marker); color: var(--marker); }
 .chip.spec { border-color: var(--spec); color: var(--spec); }
 
-.compass { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.compass { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .ext { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; align-items: center; text-align: left; padding: 6px 8px; border: 1px solid var(--rule); background: var(--bg); border-radius: 4px; cursor: pointer; min-width: 0; }
 .ext .arrow { grid-row: span 2; font-size: 16px; color: var(--marker); }
 .ext small { color: var(--fg-dim); font-size: 10.5px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -143,14 +125,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .row-btns button { flex: 1 1 140px; padding: 6px 10px; border: 1px solid var(--rule); background: transparent; border-radius: 4px; cursor: pointer; }
 .row-btns button:hover:not(:disabled) { border-color: var(--marker); }
 .row-btns button:disabled { opacity: 0.45; cursor: default; }
-
-.timecol { display: grid; gap: 3px; }
-.tc-row { display: flex; gap: 2px; }
-.tc { flex: 1; height: 16px; border: 0; padding: 0; background: var(--rule); border-radius: 1px; cursor: pointer; min-width: 3px; }
-.tc.has { background: var(--fg-dim); }
-.tc.has.spec { background: var(--spec); }
-.tc.cur { outline: 2px solid var(--marker); outline-offset: 1px; }
-.tc-axis { display: flex; justify-content: space-between; font: 400 10.5px var(--font-mono); color: var(--fg-dim); }
 
 .powers, .peoples, .chron { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .powers li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 8px; align-items: center; font-size: 13.5px; }
@@ -165,12 +139,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 .chron { gap: 0; max-height: 420px; overflow-y: auto; padding-right: 4px; border-bottom: 1px solid var(--rule); }
 .ev { display: grid; grid-template-columns: 6.6em minmax(0, 1fr); column-gap: 10px; padding: 7px 0; border-bottom: 1px dotted var(--rule); }
-.ev .yr { grid-row: span 2; text-align: left; border: 0; background: none; padding: 0; cursor: pointer; font: 500 12px var(--font-mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; align-self: start; padding-top: 2px; }
-.ev .yr:hover { color: var(--marker); }
+.ev .yr { grid-row: span 2; text-align: left; font: 500 12px var(--font-mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; align-self: start; padding-top: 2px; }
 .ev .kind { font: 600 10px var(--font-ui); text-transform: uppercase; letter-spacing: 0.09em; color: var(--fg-dim); }
 .ev p { margin: 0; font: 400 15px/1.4 var(--font-display); }
-.ev.now .yr { color: var(--marker); }
-.ev.now p { font-weight: 600; }
+.backstory summary { cursor: pointer; font: 600 11px var(--font-ui); text-transform: uppercase; letter-spacing: 0.09em; color: var(--fg-dim); border-bottom: 1px solid var(--rule); padding-bottom: 5px; margin-bottom: 4px; }
+.backstory summary:hover { color: var(--marker); }
 .k-war .kind { color: #b0473a; }
 .k-disaster .kind { color: #a0662a; }
 .k-tech .kind { color: var(--real); }
@@ -196,8 +169,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .panel { border-left: 0; border-top: 1px solid var(--rule); overflow: visible; }
   .topbar { gap: 8px 12px; }
   .brand .sub { display: none; }
-  .time .yr { flex-basis: 100%; }
-  #back1000, #fwd1000 { display: none; }
   .chron, .chron.short { max-height: none; overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
@@ -207,17 +178,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <header class="topbar">
     <div class="brand">
       <h1>Awfully Long Earth</h1>
-      <span class="sub">Big Earth survey · 10 × 10 sheets · 1 sheet = 1 Earth × 1000 years</span>
+      <span class="sub">Big Earth · 10 × 10 sheets · 1 sheet = 1 Earth</span>
     </div>
-    <div class="time">
-      <div class="yr"><span id="yearLabel">2,000 CE</span><span id="yearSub"></span></div>
-      <button class="tbtn" id="back1000" title="Back 1000 years">−1000</button>
-      <button class="tbtn" id="back250" title="Back 250 years">−250</button>
-      <input id="year" type="range" min="-1000" max="3000" step="250" value="2000" aria-label="Year">
-      <button class="tbtn" id="fwd250" title="Forward 250 years">+250</button>
-      <button class="tbtn" id="fwd1000" title="Forward 1000 years">+1000</button>
-      <button class="tbtn" id="play">Play</button>
-    </div>
+    <div class="when">2000 CE</div>
     <div class="modes" role="group" aria-label="Map mode">
       <button data-mode="political" aria-pressed="true">States</button>
       <button data-mode="culture" aria-pressed="false">Peoples</button>
@@ -229,7 +192,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   </header>
   <main class="stage">
     <div class="mapwrap">
-      <canvas id="map" aria-label="Map of surveyed Big Earth sheets"></canvas>
+      <canvas id="map" aria-label="Map of revealed Big Earth sheets"></canvas>
       <div id="tip" class="tip" hidden></div>
       <div id="legend" class="legend"></div>
       <div class="zoom">

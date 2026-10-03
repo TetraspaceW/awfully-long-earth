@@ -1,16 +1,20 @@
 # Awfully Long Earth
 
-An explorable alternate Earth that just keeps going, in space and in time.
+An explorable alternate Earth that just keeps going, frozen at a single moment: **2000 CE**.
 
 **Big Earth** has 100 times the surface area of Earth: a 10 × 10 grid of Earth-sized
-*sheets*. Real Earth is one of them, sheet **Terra (0, 0)**. Its last 2,000 years are
-our real history: the Roman Empire, the Song, the Mongols, the United States, the
-European Union, China. Before that, Big Earth has 20,000 years of history, with
-civilisations rising and falling everywhere, Terra included.
+*sheets*. Real Earth is one of them, sheet **Terra (0, 0)**, exactly as it was in 2000:
+the United States, the European Union, China and the rest. On Big Earth they are regional
+players among many. Every other sheet is generated so that it is drawn from the same
+distributions as Earth, and continues it across its edges.
 
-The map is divided into tiles of **1 Earth × 1 Earth × 1000 years**. You click to
-extend the survey north, south, east, west, earlier or later. Each new tile is filled
-in from its **boundary conditions**, meaning whatever tiles already exist around it.
+You start with Terra and its four neighbours. Click a `+` sheet next to a revealed one to
+**reveal** it. Each new sheet is filled in from its **boundary conditions**, meaning the
+revealed sheets around it.
+
+There is no time control. Each sheet's present is still reached by simulating its
+last millennium (1000–2000 CE), and that history is kept as backstory: a sheet's
+"How this world came to be" and each state's origin, predecessor and key events.
 
 ## Running it
 
@@ -27,31 +31,31 @@ npm run build-earth # re-rasterises Natural Earth country outlines (needs networ
 
 ## Using it
 
-- **Click a `+` sheet** to survey it for the millennium shown. The panel's compass
-  buttons extend the survey from the selected sheet in all six directions.
-  **Back to 20,000 BCE** surveys a whole column of time.
-- **Time**: the slider moves in 250-year snapshots. Move one millennium past the
-  surveyed range to extend into an earlier or later layer.
+- **Click a `+` sheet** to reveal it. The panel's compass buttons reveal the selected
+  sheet's north, west, east and south neighbours, or take you to them.
 - **Map modes**: states, peoples (language families, where related peoples share
-  hues), technology, population density, and bare terrain. Sea level and ice follow
-  the glacial cycle, so Doggerland and Beringia appear before about 6,000 BCE.
-- **Panel**: the leading powers on the sheet and across all surveyed Big Earth
-  (blocs like the EU are counted as one player), the peoples living there, and a
-  chronicle of the millennium.
+  hues), technology, population density, and terrain.
+- **Panel**: the leading powers on the sheet and across all revealed Big Earth
+  (blocs like the EU are counted as one player), the peoples living there, and
+  "How this world came to be": the sheet's millennium of history up to 2000.
 - **Tap a state** on the map, in a sheet's power list, or under "All states on
   this sheet" to open its profile (tap sea or stateless land to close it):
   - how it is governed and who leads it;
   - what its technology lets it do, and its economy;
   - the peoples living in it;
-  - how it emerged, its predecessor and its successors;
-  - a chart of the provinces it held over time, and its key events across every
-    surveyed sheet.
+  - its backstory: how it emerged, its predecessor, its successors, and its key
+    events across every revealed sheet.
 
   The rest of the map fades back while a state is selected.
-- The survey is saved in your browser. **Save & worlds** copies or loads a world
+- The map is saved in your browser. **Save & worlds** copies or loads a world
   code, or starts a new world from another seed.
 
 ## How tiles are filled
+
+The engine still works in tiles of **1 Earth × 1000 years** and can generate any
+millennium from 20,000 BCE to 10,000 CE, in any order. The app only uses each sheet's
+1000–2000 CE tile and shows its end. The rest of this section describes the engine;
+`npm test` exercises all of it.
 
 Each tile's state is stored as five snapshots (start, +250, +500, +750, end). A
 snapshot gives every province an owner, a people and a technology level. A new
@@ -155,8 +159,8 @@ or splintered, more or less dominated by states, and more boom-and-bust.
 
 As a result, Terra's neighbours in 2000 CE run within a few centuries of it. In
 roughly one world in four, though, somewhere far away in 3000 BCE is living in its
-own 2700 CE, complete with a world state. The panel shows each sheet's drift at
-the current date.
+own 2700 CE, complete with a world state. In 2000 CE the panel shows how far
+each sheet's development runs ahead of or behind Terra's.
 
 ## Assumptions and liberties
 

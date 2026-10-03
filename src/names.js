@@ -156,9 +156,16 @@ const EPITHETS = ['the Great', 'the Conqueror', 'the Lawgiver', 'the Unifier', '
 const TITLES = ['King', 'Queen', 'Emperor', 'Empress', 'Khagan', 'High Chief', 'Archon', 'Consul',
   'Regent', 'Prophet-King', 'Warlord', 'General'];
 const MODERN_TITLES = ['President', 'Premier', 'Chancellor', 'First Minister', 'General Secretary'];
+// monarchies and theocracies keep their crowns into the modern era
+const MONARCH_TITLES = {
+  kingdom: ['King', 'Queen'], empire: ['Emperor', 'Empress'], chiefdom: ['High Chief', 'Paramount Chief'],
+  theocracy: ['Supreme Leader', 'High Priest', 'Prophet-King'],
+};
 
 export function rulerName(p, rng, Y, type) {
   const name = word(p, rng, 2);
+  const crowned = MONARCH_TITLES[type];
+  if (Y >= 1850 && crowned) return `${rng.pick(crowned)} ${name}`;
   if (Y >= 1850 && type !== 'horde') return `${rng.pick(MODERN_TITLES)} ${name}`;
   const title = type === 'horde' ? rng.pick(['Khagan', 'Warlord', 'High Chief'])
     : type === 'republic' || type === 'league' ? rng.pick(['Consul', 'Archon', 'General', 'Doge'])
