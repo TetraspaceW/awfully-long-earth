@@ -160,7 +160,7 @@ class TileSim {
     this.devMemo = new Map();
     this.effMemo = new Map();
     this.regMemo = new Map();
-    this.pos = this.R.map((reg) => regionPos(x, y, reg));
+    this.rpos = this.R.map((reg) => regionPos(x, y, reg));
     this.ctl = { emerge: 1, succ: 0.85, consol: 1, decay: 1, Sstar: 0.6 };
   }
 
@@ -197,7 +197,7 @@ class TileSim {
       const seed = this.world.seed;
       m = { E: new Float32Array(this.n), dev: new Float32Array(this.n) };
       for (let r = 0; r < this.n; r++) {
-        const [gx, gy] = this.pos[r];
+        const [gx, gy] = this.rpos[r];
         m.E[r] = effectiveYear(seed, gx, gy, Y);
         m.dev[r] = development(seed, gx, gy, Y);
       }
@@ -257,7 +257,7 @@ class TileSim {
     const S = new Float32Array(this.n), N = new Float32Array(this.n);
     let sS = 0, sN = 0, w = 0;
     for (let r = 0; r < this.n; r++) {
-      const [gx, gy] = this.pos[r];
+      const [gx, gy] = this.rpos[r];
       const Tm = techCap(effectiveYear(seed, gx, gy, Y)) * development(seed, gx, gy, Y);
       S[r] = targetStateShare(seed, gx, gy, Y, Tm);
       N[r] = targetStateCount(seed, gx, gy, Y, Tm, this.sizeFactor);
@@ -905,7 +905,7 @@ class TileSim {
     const t = new Int32Array(this.n);
     const info = new Map();
     for (let r = 0; r < this.n; r++) {
-      const [gx, gy] = this.pos[r];
+      const [gx, gy] = this.rpos[r];
       const fed = federationAt(this.world.seed, gx, gy, Y);
       if (!fed) continue;
       const F = federationPolity(this.world, fed, Y);

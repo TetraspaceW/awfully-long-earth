@@ -44,12 +44,48 @@ async function gunzip(code) {
   return new Response(ds).text();
 }
 
+// The world is kept in IndexedDB, which holds far more than localStorage's few
+// megabytes; localStorage is only a fallback (and where older versions saved).
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('awfully-long-earth', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', mode);
+    const req = fn(tx.objectStore('kv'));
+    tx.oncomplete = () => { db.close(); resolve(req.result); };
+    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function storeSave(code) {
+  try {
+    await idbDo('readwrite', (st) => st.put(code, STORE));
+    try { localStorage.removeItem(STORE); } catch (e) { /* not available */ }
+  } catch (e) {
+    localStorage.setItem(STORE, code);
+  }
+}
+async function storeLoad() {
+  try {
+    const code = await idbDo('readonly', (st) => st.get(STORE));
+    if (code) return code;
+  } catch (e) { /* fall back to localStorage */ }
+  try { return localStorage.getItem(STORE); } catch (e) { return null; }
+}
+
 let saveTimer = 0;
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
-      localStorage.setItem(STORE, await gzip(state.world.serialize()));
+      await storeSave(await gzip(state.world.serialize()));
     } catch (e) {
       toast('This world is too large to keep in the browser. Use Save to copy or download it.');
     }
@@ -58,7 +94,7 @@ function scheduleSave() {
 
 async function loadSaved() {
   try {
-    const code = localStorage.getItem(STORE);
+    const code = await storeLoad();
     if (!code) return null;
     return World.deserialize(await gunzip(code));
   } catch (e) {
@@ -90,28 +126,75 @@ function resize() {
   draw();
 }
 
-function tileImage(x, y, st) {
-  const key = `${tileKey(x, y, st.hist.t)}|${state.Y}|${state.mode}|${state.nation}`;
+// Rendered sheets, least recently used first. Zoomed out, sheets are kept as
+// small thumbnails (60 x 30), so thousands fit; full size only when close up.
+const IMG_KEEP = 400, THUMB_KEEP = 6000;
+let fullCount = 0;
+function tileImage(x, y, st, small, budget) {
+  const base = `${tileKey(x, y, st.hist.t)}|${state.Y}|${state.mode}|${state.nation}`;
+  const key = small ? `${base}|s` : base;
   let c = imgCache.get(key);
-  if (!c) {
-    if (imgCache.size > 300) imgCache.clear();
-    c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    c.getContext('2d').putImageData(renderTile(state.world, x, y, st.snap, state.Y, state.mode, state.nation), 0, 0);
-    imgCache.set(key, c);
+  if (c) { imgCache.delete(key); imgCache.set(key, c); return c; }
+  // a thumbnail can come from the full image if we still have it
+  const full = small ? imgCache.get(base) : null;
+  if (!full && budget.left() <= 0) return null;   // out of time this frame
+  let src = full;
+  if (!src) {
+    src = document.createElement('canvas');
+    src.width = W; src.height = H;
+    src.getContext('2d').putImageData(renderTile(state.world, x, y, st.snap, state.Y, state.mode, state.nation), 0, 0);
   }
+  if (small) {
+    c = document.createElement('canvas');
+    c.width = W / 4; c.height = H / 4;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = true;
+    g.drawImage(src, 0, 0, c.width, c.height);
+  } else {
+    c = src;
+    fullCount++;
+  }
+  imgCache.set(key, c);
+  trimImages();
   return c;
 }
+
+function trimImages() {
+  if (imgCache.size <= IMG_KEEP && fullCount <= IMG_KEEP) return;
+  for (const [k, v] of imgCache) {
+    const isFull = !k.endsWith('|s');
+    if (isFull && fullCount > IMG_KEEP) { imgCache.delete(k); fullCount--; }
+    else if (!isFull && imgCache.size - fullCount > THUMB_KEEP) imgCache.delete(k);
+    if (fullCount <= IMG_KEEP && imgCache.size - fullCount <= THUMB_KEEP) break;
+  }
+}
+
+function clearImages() { imgCache.clear(); fullCount = 0; }
 
 function layerFor() { return LAYER; }
 
 const toScreen = (tx, ty) => [(tx - state.cam.cx) * state.cam.scale + vw / 2, (ty - state.cam.cy) * state.cam.scale / 2 + vh / 2];
 const toTile = (sx, sy) => [(sx - vw / 2) / state.cam.scale + state.cam.cx, ((sy - vh / 2) * 2) / state.cam.scale + state.cam.cy];
 
-function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+// Theme colours, read once per frame rather than once per sheet.
+let cssMemo = new Map();
+function css(name) {
+  let v = cssMemo.get(name);
+  if (v === undefined) { v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); cssMemo.set(name, v); }
+  return v;
+}
+
+let drawPending = 0;
 
 function draw() {
   if (!state.world) return;
+  cssMemo = new Map();
+  cancelAnimationFrame(drawPending); drawPending = 0;
+  // sheets not yet rendered are drawn as they come, about 40 ms of work a
+  // frame, so a large world fills in instead of freezing the page
+  const t0 = performance.now();
+  const budget = { left: () => 40 - (performance.now() - t0) };
+  let missing = false;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = css('--sea-deep');
   ctx.fillRect(0, 0, vw, vh);
@@ -127,8 +210,16 @@ function draw() {
       const [sx, sy] = toScreen(tx, ty);
       const st = tileStateAt(state.world, x, ty, state.Y);
       if (st) {
-        ctx.drawImage(tileImage(x, ty, st), sx, sy, s, th);
-        if (state.mode === 'political' && s > 260) labels.push(...polityLabels(x, ty, st, sx, sy, s));
+        const img = tileImage(x, ty, st, s * dpr < 90, budget);
+        if (img) {
+          ctx.imageSmoothingEnabled = img.width < W;
+          ctx.drawImage(img, sx, sy, s, th);
+          ctx.imageSmoothingEnabled = false;
+          if (state.mode === 'political' && s > 260) labels.push(...polityLabels(x, ty, st, sx, sy, s));
+        } else {
+          missing = true;
+          ctx.fillStyle = css('--fog'); ctx.fillRect(sx, sy, s, th);
+        }
       } else {
         drawFog(x, ty, sx, sy, s, th);
       }
@@ -160,6 +251,7 @@ function draw() {
     ctx.fillText(lb.text, lb.x, lb.y);
     ctx.textAlign = 'left';
   }
+  if (missing) drawPending = requestAnimationFrame(draw);
 }
 
 function polityLabels(x, y, st, sx, sy, s) {
@@ -334,7 +426,6 @@ function click(sx, sy) {
 function survey(x, y, t, quiet = false) {
   if (!canGenerate(state.world, x, y, t)) return false;
   generateTile(state.world, x, y, t);
-  imgCache.clear(); clearColorCache();
   if (!quiet) {
     state.sel = { x, y };
     toast(`Revealed ${state.world.tileName(x, y)}`);
@@ -598,7 +689,7 @@ async function surveyRing(x, y, t) {
     if (p) survey(p.x, p.y, t, true);
     await tick();
   }
-  imgCache.clear(); toast('Revealed the neighbouring worlds'); draw(); renderPanel();
+  toast('Revealed the neighbouring worlds'); draw(); renderPanel();
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -674,7 +765,7 @@ $('confirmYes').addEventListener('click', async () => {
 async function adopt(w) {
   state.world = w;
   prepareEarthGeo(w);
-  imgCache.clear(); clearColorCache();
+  clearImages(); clearColorCache();
   state.Y = 2000; state.sel = { x: 0, y: 0 };
   $('seed').value = w.seed;
   draw(); renderPanel(); scheduleSave();

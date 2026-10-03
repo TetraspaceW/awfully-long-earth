@@ -104,7 +104,7 @@ export class World {
     const tiles = [];
     for (const h of this.tiles.values()) {
       tiles.push({
-        x: h.x, y: h.y, t: h.t, order: h.order, events: h.events, fixed: !!h.fixed,
+        x: h.x, y: h.y, t: h.t, order: h.order, events: h.events, fixed: !!h.fixed, sums: h.sums,
         snaps: h.snaps.map((s) => ({ o: b64(s.owner), c: b64(s.culture), q: b64(quantTech(s.tech)) })),
       });
     }
@@ -119,12 +119,14 @@ export class World {
     if (d.v !== 1) throw new Error('unknown save version');
     const w = new World(d.seed);
     w.nextId = d.nextId; w.order = d.order;
-    for (const c of d.cultures) w.addCulture(c);
-    for (const p of d.polities) w.addPolity(p);
-    w.blocs = d.blocs || [];
+    // early saves stored every province position as `home`; keep only the sheet
+    const fixHome = (o) => { if (typeof o.home !== 'string') o.home = null; return o; };
+    for (const c of d.cultures) w.addCulture(fixHome(c));
+    for (const p of d.polities) w.addPolity(fixHome(p));
+    w.blocs = (d.blocs || []).map(fixHome);
     for (const t of d.tiles) {
       w.tiles.set(tileKey(t.x, t.y, t.t), {
-        x: t.x, y: t.y, t: t.t, order: t.order, events: t.events, fixed: t.fixed,
+        x: t.x, y: t.y, t: t.t, order: t.order, events: t.events, fixed: t.fixed, sums: t.sums,
         snaps: t.snaps.map((s) => ({
           owner: new Int32Array(unb64(s.o)), culture: new Int32Array(unb64(s.c)),
           tech: dequantTech(new Uint8Array(unb64(s.q))),

@@ -247,12 +247,25 @@ export function setGeoSeed(seed) {
   worldSeed = seed;
 }
 
+// Geography is rebuilt from noise on demand, so only recently used sheets are
+// kept (about 0.6 MB each). Terra stays: it carries real-world figures.
+const GEO_KEEP = 96;
 export function getGeo(x, y) {
   const k = `${x},${y}`;
   let g = cache.get(k);
-  if (!g) { g = buildGeo(x, y); cache.set(k, g); }
+  if (g) { cache.delete(k); cache.set(k, g); return g; }
+  g = buildGeo(x, y);
+  cache.set(k, g);
+  if (cache.size > GEO_KEEP) {
+    for (const old of cache.keys()) {
+      if (cache.size <= GEO_KEEP) break;
+      if (old !== '0,0') cache.delete(old);
+    }
+  }
   return g;
 }
+
+export function hasGeo(x, y) { return cache.has(`${x},${y}`); }
 
 function buildGeo(x, y) {
   const earth = isEarthPos(x, y);

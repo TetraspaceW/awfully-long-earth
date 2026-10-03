@@ -71,22 +71,41 @@ export function worldPowers(world, Y, only = null) {
     if (only && !only.has(pk)) continue;
     const st = tileStateAt(world, x, y, Y);
     if (!st) continue;
-    const geo = getGeo(x, y);
-    const real = geo.earth && Y === 2000;
-    for (const r of geo.regions) {
-      const pid = st.snap.owner[r.id];
-      if (!pid) continue;
+    for (const [pid, pop, gdp, regions] of tileRows(x, y, st, Y)) {
       let a = agg.get(pid);
       if (!a) { a = { id: pid, pop: 0, gdp: 0, regions: 0, tiles: new Set() }; agg.set(pid, a); }
-      const tech = st.snap.tech[r.id];
-      const pop = real ? r.realPop : regionPop(r, tech, Y);
-      a.pop += pop;
-      a.gdp += real ? r.realGdp : pop * perCapita(tech);
-      a.regions++;
+      a.pop += pop; a.gdp += gdp; a.regions += regions;
       a.tiles.add(pk);
     }
   }
   return agg;
+}
+
+// Each state's population, economy and provinces on one sheet at one snapshot.
+// Tiles never change once generated, so this is worked out once and saved with
+// the tile: totals across hundreds of sheets then need none of their geography.
+function tileRows(x, y, st, Y) {
+  const h = st.hist;
+  h.sums = h.sums || {};
+  let rows = h.sums[st.k];
+  if (rows) return rows;
+  const geo = getGeo(x, y);
+  const real = geo.earth && Y === 2000;
+  const by = new Map();
+  for (const r of geo.regions) {
+    const pid = st.snap.owner[r.id];
+    if (!pid) continue;
+    let a = by.get(pid);
+    if (!a) { a = [pid, 0, 0, 0]; by.set(pid, a); }
+    const tech = st.snap.tech[r.id];
+    const pop = real ? r.realPop : regionPop(r, tech, Y);
+    a[1] += pop;
+    a[2] += real ? r.realGdp : pop * perCapita(tech);
+    a[3]++;
+  }
+  rows = [...by.values()].map(([p, pop, gdp, n]) => [p, Math.round(pop), Math.round(gdp), n]);
+  h.sums[st.k] = rows;
+  return rows;
 }
 
 // Ranked list of the leading players: blocs absorb their members.
