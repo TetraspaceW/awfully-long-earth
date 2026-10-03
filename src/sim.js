@@ -23,12 +23,15 @@ import { Rng, hashN } from './rng.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
 import { regionPower } from './stats.js';
 import { cloneSnap } from './world.js';
-import { development, targetStateShare, targetStateCount, federationAt, federationPolity } from './macro.js';
+import { development, targetStateShare, targetStateCount, federationAt, federationPolity, effectiveYear } from './macro.js';
 
 const DIR_NAME = { E: 'east', W: 'west', N: 'north', S: 'south' };
 // backward generation drifts technology towards this share of the era ceiling,
 // matching where forward runs settle
 const BACK_TECH = 0.93;
+// beyond Terra's present the future is speculation; far from Terra, a sheet can
+// reach those levels in what is Terra's distant past
+const milestoneText = (t, r, Y) => (Y > 2000 && /post-industrial|Spaceports/.test(t) ? '(Speculative) ' : '') + t.replace('{r}', r);
 const MILESTONES = {
   1: 'Farming villages appear around {r}.',
   2: 'Copper-working chiefdoms arise in {r}.',
@@ -39,8 +42,8 @@ const MILESTONES = {
   7: 'Printing, gunpowder and ocean-going ships transform {r}.',
   8: 'Industrialisation begins in {r}.',
   9: '{r} enters the information age.',
-  10: '(Speculative) {r} becomes post-industrial: automated, long-lived and post-scarcity.',
-  11: '(Speculative) Spaceports and orbital industry rise in {r}.',
+  10: '{r} becomes post-industrial: automated, long-lived and post-scarcity.',
+  11: 'Spaceports and orbital industry rise in {r}.',
 };
 export const T_MIN = -60, T_MAX = 9;
 
@@ -153,6 +156,7 @@ class TileSim {
     for (const r of this.R) if (regionCapacity(r, 2000) >= 0.3) hab++;
     this.sizeFactor = Math.max(0.05, hab / 200);
     this.devMemo = new Map();
+    this.effMemo = new Map();
     this.ctl = { emerge: 1, succ: 0.85, consol: 1, decay: 1, Sstar: 0.6 };
   }
 
@@ -171,8 +175,16 @@ class TileSim {
     const reg = this.R[r];
     const m = reg.cellsNow ? this.cap(r, Y) / Math.max(1, reg.cells) : 0;
     const hf = 0.45 + 0.55 * Math.min(1, m / 0.6);
-    return hf + (1 - hf) * clamp((Y - 1500) / 400, 0, 1);
+    return hf + (1 - hf) * clamp((this.E(Y) - 1500) / 400, 0, 1);
   }
+  // the year whose technology and institutions this sheet is living through
+  // (Terra's timeline plus the sheet's drift from it); sea level and ice follow real time
+  E(Y) {
+    let e = this.effMemo.get(Y);
+    if (e === undefined) { e = effectiveYear(this.world.seed, this.x, this.y, Y); this.effMemo.set(Y, e); }
+    return e;
+  }
+
   dev(Y) {
     let d = this.devMemo.get(Y);
     if (d === undefined) { d = development(this.world.seed, this.x, this.y, Y); this.devMemo.set(Y, d); }
@@ -182,12 +194,12 @@ class TileSim {
   // institutional gap, giving Earth-like inequality; all modes share this target
   // (the gap fades over the millennium after 2000)
   modernGoal(r, Y) {
-    const gap = (1.6 - this.inst[r]) * 1.6 * (1 - clamp((Y - 2000) / 1000, 0, 1));
-    return techCap(Y) - 0.1 - gap;
+    const gap = (1.6 - this.inst[r]) * 1.6 * (1 - clamp((this.E(Y) - 2000) / 1000, 0, 1));
+    return techCap(this.E(Y)) - 0.1 - gap;
   }
 
   // the era's ceiling here, including the sheet's golden or dark age
-  techCeil(r, Y) { return techCap(Y) * this.habFactor(r, Y) * this.dev(Y); }
+  techCeil(r, Y) { return techCap(this.E(Y)) * this.habFactor(r, Y) * this.dev(Y); }
 
   // ------------------------------------------------- steering to the macro layer
 
@@ -214,7 +226,7 @@ class TileSim {
   // Multipliers that nudge every generation mode towards the same macro targets.
   control(Y) {
     const seed = this.world.seed;
-    const Tm = techCap(Y) * this.dev(Y);
+    const Tm = techCap(this.E(Y)) * this.dev(Y);
     const m = this.measure(Y);
     const Sstar = targetStateShare(seed, this.x, this.y, Y, Tm);
     const Nstar = targetStateCount(seed, this.x, this.y, Y, Tm, this.sizeFactor);
@@ -285,7 +297,7 @@ class TileSim {
     // nation-state era: many mid-sized states. Past the information age the reach
     // of a single government grows steeply: a whole world near tech 9.5, many
     // worlds beyond 10.
-    const modern = Y >= 1850 && tech < 9 ? 0.6 : 1;
+    const modern = this.E(Y) >= 1850 && tech < 9 ? 0.6 : 1;
     return (3 + 5 * tech) * tf * modern * Math.exp(Math.max(0, tech - 7) * 1.1);
   }
 
@@ -396,12 +408,12 @@ class TileSim {
     for (let r = 0; r < n; r++) {
       if (!culture[r]) continue;
       const c = this.techCeil(r, Yp);
-      const ramp = clamp((Yp - 1550) / 300, 0, 1);
+      const ramp = clamp((this.E(Yp) - 1550) / 300, 0, 1);
       const goal = (1 - ramp) * BACK_TECH * c + ramp * this.modernGoal(r, Yp);
       let t = tech[r] + (goal - tech[r]) * (0.07 + 0.43 * ramp) + rng.normal() * 0.03;
       tech[r] = clamp(t, 0.3, Math.max(c, goal) + 0.2);
     }
-    if (Yp < 1900 && rng.chance(0.012)) {
+    if (this.E(Yp) < 1900 && rng.chance(0.012)) {
       const live = [];
       for (let r = 0; r < n; r++) if (culture[r] && tech[r] >= 3) live.push(r);
       if (live.length) {
@@ -411,7 +423,7 @@ class TileSim {
         this.ev(Y - rng.int(0, 49), 'disaster', `A dark age falls on the lands around ${this.rname(r0)}: cities shrink, trade fails and old learning is lost.`);
       }
     }
-    if (rng.chance(Yp >= 1900 ? 0.006 : 0.015)) {
+    if (rng.chance(this.E(Yp) >= 1900 ? 0.006 : 0.015)) {
       const live = [];
       for (let r = 0; r < n; r++) if (culture[r] && tech[r] >= 1) live.push(r);
       if (live.length) this.ev(Y - rng.int(0, 49), 'disaster', `${rng.pick(this.shockKinds(Y))} strikes ${this.rname(rng.pick(live))} and the lands around it.`);
@@ -452,6 +464,8 @@ class TileSim {
       for (let i = 0; i < splits; i++) if (rng.chance(clamp(0.5 * (1 / consol - 1), 0, 0.85))) this.unmerge(Y, Yp);
     }
 
+    this.advancedEvents(Y);
+
     // languages recede
     for (const c of new Set(culture)) {
       const rec = c && this.world.cultures.get(c);
@@ -476,9 +490,39 @@ class TileSim {
     if (rng.chance(0.06)) this.unabsorb(Y);
   }
 
+  // Advanced worlds have their own history even when their borders are settled.
+  advancedEvents(Y) {
+    if (this.warm || !this.rng.chance(0.12)) return;
+    const { rng } = this;
+    const live = [];
+    for (let r = 0; r < this.n; r++) if (this.s.culture[r] && this.s.tech[r] >= 9.3) live.push(r);
+    if (live.length < 3) return;
+    const r = this.rname(rng.pick(live));
+    const o = this.s.owner[live[0]];
+    const who = o ? this.pref(o, Y, true) : 'The peoples of ' + this.world.tileName(this.x, this.y);
+    const t = this.meanTech(live);
+    const pool = [
+      `${who} holds a constitutional convention in ${r} and rewrites its founding charter.`,
+      `Machine minds are granted citizenship after a long struggle centred on ${r}.`,
+      `${r} is rebuilt as an arcology after a catastrophic flood.`,
+      `A great desalination and reforestation programme greens the drylands around ${r}.`,
+      `${who} abolishes ageing as a cause of death; the gerontocracy debates begin in ${r}.`,
+      `A schism over memory-editing splits the churches of ${r}.`,
+      `The last coal mine in ${r} becomes a museum.`,
+      `A cultural renaissance in ${r} revives the old languages of the region.`,
+    ];
+    if (t >= 10) pool.push(
+      `Orbital elevators rise from ${r}; the sky fills with stations.`,
+      `${who} launches its first crewed probe to another star.`,
+      `A rogue artificial intelligence briefly seizes the networks of ${r} before it is talked down.`,
+      `Weather control ends famine around ${r}, and starts a century of lawsuits.`,
+    );
+    this.ev(Y - rng.int(0, 49), 'tech', rng.pick(pool));
+  }
+
   shockKinds(Y) {
-    if (Y >= 2000) return ['A pandemic', 'Sea-level rise and great storms', 'A grid collapse and civil strife', 'Crop blight from a shifting climate', 'An automation crash and mass unrest'];
-    if (Y >= 1800) return ['A pandemic', 'A great famine', 'A financial crash and civil strife'];
+    if (this.E(Y) >= 2000) return ['A pandemic', 'Sea-level rise and great storms', 'A grid collapse and civil strife', 'Crop blight from a shifting climate', 'An automation crash and mass unrest'];
+    if (this.E(Y) >= 1800) return ['A pandemic', 'A great famine', 'A financial crash and civil strife'];
     return ['A plague', 'A great drought', 'A volcanic winter', 'A cattle plague and famine', 'A succession of failed harvests', 'Earthquakes and floods'];
   }
 
@@ -642,7 +686,7 @@ class TileSim {
   // Forwards: when more land is under states than the macro target, small
   // states decline into chiefdoms (the mirror of backward revival).
   decline(Y) {
-    if (Y >= 1900) return;
+    if (this.E(Y) >= 1900) return;
     const { rng } = this;
     const m = this.measure(Y);
     let excess = Math.round((m.S - this.ctl.Sstar - 0.03) * m.ready);
@@ -706,7 +750,7 @@ class TileSim {
   fedStep(Y) {
     const { world, rng } = this;
     const fed = federationAt(world.seed, this.x, this.y, Y);
-    const F = fed ? federationPolity(world, fed) : 0;
+    const F = fed ? federationPolity(world, fed, Y) : 0;
     const present = new Set();
     for (const o of this.s.owner) if (o && this.pol(o).macro) present.add(o);
     for (const G of present) {
@@ -740,7 +784,7 @@ class TileSim {
   backFed(Y, Yp) {
     const { world, rng } = this;
     const fed = federationAt(world.seed, this.x, this.y, Yp);
-    const Fp = fed ? federationPolity(world, fed) : 0;
+    const Fp = fed ? federationPolity(world, fed, Yp) : 0;
     const present = new Set();
     for (const o of this.s.owner) if (o && this.pol(o).macro) present.add(o);
     for (const G of present) {
@@ -813,7 +857,7 @@ class TileSim {
         const p = this.pol(pid);
         if (size >= 6 && size - before >= Math.max(4, before) && !p.earth) {
           const c = this.world.cultures.get(p.culture);
-          const ruler = c && c.phon ? rulerName(c.phon, rng, Y, p.type) : 'a new dynasty';
+          const ruler = c && c.phon ? rulerName(c.phon, rng, this.E(Y), p.type) : 'a new dynasty';
           this.ev(Y - rng.int(30, 220), 'war', `Under ${ruler}, ${this.pref(pid, Y)} conquers ${size - before} provinces.`, pid);
         }
         if (size >= 18 && before < 18) this.ev(Y - rng.int(0, 200), 'polity', `${this.pref(pid, Y, true)} becomes the dominant power of ${this.world.tileName(this.x, this.y)}.`, pid);
@@ -828,7 +872,8 @@ class TileSim {
       const sn = snaps[k];
       let best = 0;
       for (let r = 0; r < this.n; r++) if (sn.tech[r] > sn.tech[best]) best = r;
-      this.ev(this.start + k * 250 - rng.int(0, 249), 'tech', texts[lvl].replace('{r}', this.rname(best)));
+      const yy = this.start + k * 250 - rng.int(0, 249);
+      this.ev(yy, 'tech', milestoneText(texts[lvl], this.rname(best), yy));
     }
   }
 
@@ -978,7 +1023,7 @@ class TileSim {
   spinUp(Y) {
     const { world } = this;
     const firstId = world.nextId;
-    const steps = Y >= 2000 ? 30 : Y >= 1500 ? 20 : 16;
+    const steps = this.E(Y) >= 2000 ? 30 : this.E(Y) >= 1500 ? 20 : 16;
     this.warm = true;
     for (let i = 0; i < steps; i++) this.step(0, Y);
     this.warm = false;
@@ -1110,13 +1155,14 @@ class TileSim {
     this.futureUnions(s, Y, this.members());
     this.pull(s, Y);
     this.milestones(Y);
+    this.advancedEvents(Y);
   }
 
   techStep(s, Y) {
     const { n, R, rng } = this;
     const { tech, owner, culture } = this.s;
     const nt = tech.slice();
-    const ceilNow = techCap(Y);
+    const ceilNow = techCap(this.E(Y));
     for (let r = 0; r < n; r++) {
       if (!culture[r]) { nt[r] = 0; continue; }
       const c = this.techCeil(r, Y);
@@ -1133,7 +1179,7 @@ class TileSim {
       // the modern breakthrough spreads everywhere, unevenly: each region converges
       // on the frontier minus a persistent institutional gap, giving Earth-like
       // inequality by 2000
-      if (Y >= 1550) t += (this.modernGoal(r, Y) - t) * 0.5 * clamp((Y - 1550) / 300, 0, 1);
+      if (this.E(Y) >= 1550) t += (this.modernGoal(r, Y) - t) * 0.5 * clamp((this.E(Y) - 1550) / 300, 0, 1);
       nt[r] = Math.min(t, ceilNow + 0.2);
     }
     tech.set(nt);
@@ -1143,7 +1189,7 @@ class TileSim {
   shocks(s, Y) {
     const { rng } = this;
     const shocked = new Set();
-    const p = Y >= 2000 ? 0.02 : Y >= 1900 ? 0.004 : 0.02;
+    const p = this.E(Y) >= 2000 ? 0.02 : this.E(Y) >= 1900 ? 0.004 : 0.02;
     if (!rng.chance(p)) return shocked;
     const live = [];
     for (let r = 0; r < this.n; r++) if (this.s.culture[r] && this.s.tech[r] >= 1) live.push(r);
@@ -1158,7 +1204,7 @@ class TileSim {
       frontier = next;
     }
     const kinds = this.shockKinds(Y);
-    for (const r of shocked) if (this.s.tech[r] >= 2 && Y < 1900) this.s.tech[r] = Math.max(0.5, this.s.tech[r] - rng.range(0.1, 0.45));
+    for (const r of shocked) if (this.s.tech[r] >= 2 && this.E(Y) < 1900) this.s.tech[r] = Math.max(0.5, this.s.tech[r] - rng.range(0.1, 0.45));
     if (shocked.size >= 4) this.ev(Y - rng.int(0, 49), 'disaster', `${rng.pick(kinds)} strikes ${this.rname(r0)} and the lands around it.`);
     return shocked;
   }
@@ -1203,7 +1249,7 @@ class TileSim {
       if (o) {
         const pc = this.pol(o).culture;
         if (pc && pc !== culture[r] && (this.world.cultures.has(pc))) {
-          const pr = Y > 1900 ? 0.003 : 0.008 + (this.pol(o).type === 'horde' ? 0.02 : 0);
+          const pr = this.E(Y) > 1900 ? 0.003 : 0.008 + (this.pol(o).type === 'horde' ? 0.02 : 0);
           if (rng.chance(pr)) { culture[r] = pc; this.noteArrival(pc, null, Y, r); }
         }
       }
@@ -1290,7 +1336,7 @@ class TileSim {
   typeFor(r, tech, Y) {
     const { rng } = this;
     const reg = this.R[r];
-    if (Y >= 1800 && tech >= 7) return rng.weighted(['republic', 'republic', 'kingdom', 'federation', 'union'], () => 1);
+    if (this.E(Y) >= 1800 && tech >= 7) return rng.weighted(['republic', 'republic', 'kingdom', 'federation', 'union'], () => 1);
     if (reg.steppe > 0.4 && tech < 6.5 && rng.chance(0.7)) return 'horde';
     if (tech < 3.2) return rng.chance(0.5) ? 'chiefdom' : 'city-states';
     const r0 = rng.next();
@@ -1309,7 +1355,7 @@ class TileSim {
       const cap = this.cap(r, Y);
       if (cap < 0.3) continue;
       if (this.target && this.target.owner[r] && this.isDestined(this.target.owner[r]) && s > 14) continue;
-      const P = 0.025 * (tech[r] - 2.4) * Math.min(1, cap / 3) * (Y >= 1950 ? 6 : 1) * this.ctl.emerge;
+      const P = 0.025 * (tech[r] - 2.4) * Math.min(1, cap / 3) * (this.E(Y) >= 1950 ? 6 : 1) * this.ctl.emerge;
       if (!rng.chance(P)) continue;
       const pid = this.createPolity(r, Y, created);
       if (pid && !this.warm && (tech[r] >= 3 || rng.chance(0.3))) {
@@ -1326,11 +1372,11 @@ class TileSim {
   }
 
   attackRate(Y, pTech, tTech, pid) {
-    const colonial = Y >= 1500 && Y < 1950 && pTech - tTech >= 1.5;
+    const colonial = this.E(Y) >= 1500 && this.E(Y) < 1950 && pTech - tTech >= 1.5;
     let base = 0.3;
-    if (Y >= 1850) base = 0.05;
-    if (Y >= 1950) base = 0.004;
-    if (Y >= 2000) base = 0.03; // speculative: wars never quite end
+    if (this.E(Y) >= 1850) base = 0.05;
+    if (this.E(Y) >= 1950) base = 0.004;
+    if (this.E(Y) >= 2000) base = 0.03; // speculative: wars never quite end
     if (colonial) base = Math.max(base, 0.5);
     return base * (this.pol(pid).agg || 1);
   }
@@ -1392,8 +1438,8 @@ class TileSim {
   annex(pid, r, q, Y) {
     const { owner } = this.s;
     owner[r] = pid;
-    if (q && Y >= 1850 && !this.warm && !this.target && owner.includes(q)) {
-      const verb = Y >= 2000 ? this.rng.pick(['seizes', 'annexes', 'occupies', 'wins', 'takes']) : this.rng.pick(['seizes', 'annexes', 'conquers']);
+    if (q && this.E(Y) >= 1850 && !this.warm && !this.target && owner.includes(q)) {
+      const verb = this.E(Y) >= 2000 ? this.rng.pick(['seizes', 'annexes', 'occupies', 'wins', 'takes']) : this.rng.pick(['seizes', 'annexes', 'conquers']);
       const war = this.rng.chance(0.3) ? ` in the ${this.pname(pid, Y).replace(/^(Kingdom|Republic|Federation|Empire|Commonwealth) of /, '')}–${this.pname(q, Y).replace(/^(Kingdom|Republic|Federation|Empire|Commonwealth) of /, '')} War` : '';
       this.ev(Y - this.rng.int(0, 49), 'war', `${this.pref(pid, Y, true)} ${verb} ${this.rname(r)} from ${this.pref(q, Y)}${war}.`, pid);
     }
@@ -1482,7 +1528,7 @@ class TileSim {
           if (set.has(o) && !seen.has(o) && culture[o] === culture[r0]) { seen.add(o); comp.push(o); }
         }
       }
-      if (Y < 1900) for (const r of comp) if (tech[r] >= 3) tech[r] = Math.max(2.5, tech[r] - rng.range(0.1, 0.6));
+      if (this.E(Y) < 1900) for (const r of comp) if (tech[r] >= 3) tech[r] = Math.max(2.5, tech[r] - rng.range(0.1, 0.6));
       const best = comp.reduce((a, b) => (tech[b] > tech[a] ? b : a));
       if (tech[best] < 2.6 || !rng.chance(this.ctl.succ)) continue;
       const np = this.createPolity(best, Y, null, { parent: pid });
@@ -1509,8 +1555,8 @@ class TileSim {
       const colonialShare = list.filter((r) => culture[r] !== p.culture && this.s.tech[r] < pt - 0.8).length / list.length;
       if (p.macro) continue;
       let P = (0.02 * Math.max(0, list.length / L - 0.6) + 0.015 * foreignShare) / this.ctl.consol;
-      if (Y >= 1945 && colonialShare > 0.2) P += 0.3; // decolonisation
-      if (Y >= 2000) P += 0.008; // independence movements
+      if (this.E(Y) >= 1945 && colonialShare > 0.2) P += 0.3; // decolonisation
+      if (this.E(Y) >= 2000) P += 0.008; // independence movements
       if (this.target && s > 15) P *= 0.3;
       if (!rng.chance(P)) continue;
       const capR = p.capital && p.capital.x === this.x && p.capital.y === this.y ? p.capital.r : -1;
@@ -1526,11 +1572,11 @@ class TileSim {
           if (set.has(o) && !seen.has(o) && culture[o] === culture[seed]) { seen.add(o); cluster.push(o); }
         }
       }
-      const np = this.createPolity(seed, Y, null, { parent: pid, type: Y >= 1945 ? 'republic' : undefined });
+      const np = this.createPolity(seed, Y, null, { parent: pid, type: this.E(Y) >= 1945 ? 'republic' : undefined });
       if (!np) continue;
       for (const r of cluster) owner[r] = np;
-      if (cluster.length >= 2 || Y >= 1800) {
-        const verb = Y >= 1945 ? 'wins independence from' : rng.pick(['breaks away from', 'rebels against', 'throws off the rule of']);
+      if (cluster.length >= 2 || this.E(Y) >= 1800) {
+        const verb = this.E(Y) >= 1945 ? 'wins independence from' : rng.pick(['breaks away from', 'rebels against', 'throws off the rule of']);
         this.ev(Y - rng.int(0, 49), 'war', `${this.pref(np, Y, true)} ${verb} ${this.pref(pid, Y)}.`, np);
       }
     }
@@ -1551,12 +1597,12 @@ class TileSim {
       const ageing = Math.min(0.04, Math.max(0, age - 200) / 20000) * (t >= 8 ? 0.15 : 1);
       let P = (0.004 + 0.07 * Math.max(0, size / L - 0.85) + ageing) / this.ctl.consol * this.ctl.decay;
       if (p.type === 'horde') P *= 2.2;
-      if (Y >= 1850 && t >= 7.5) P *= Y >= 2000 ? 0.5 : 0.15;
+      if (this.E(Y) >= 1850 && t >= 7.5) P *= this.E(Y) >= 2000 ? 0.5 : 0.15;
       if (shocked.has(p.capital.r)) P += 0.12;
       if (this.target) P += 0.25 * (s / STEPS) ** 3;
       if (!rng.chance(P)) continue;
       p.ended = Y;
-      const how = Y >= 1850
+      const how = this.E(Y) >= 1850
         ? ['collapses in revolution', 'dissolves', 'breaks apart in civil war']
         : ['collapses', 'falls into civil war and breaks apart', 'is torn apart by rival claimants', 'fragments after its last strong ruler dies'];
       this.fragment(pid, Y, `${this.pref(pid, Y, true)} ${rng.pick(how)}${size >= 10 ? ` after ${Math.max(50, Y - (p.founded ?? Y - 200))} years` : ''}.`);
@@ -1575,13 +1621,13 @@ class TileSim {
         p.names = p.names || [[p.founded ?? this.start, p.name]];
         p.names.push([Y, nm]);
         this.ev(Y - rng.int(0, 49), 'polity', `The ${p.name} proclaims itself the ${nm}.`, pid);
-      } else if (Y >= 2000 && rng.chance(p.type === 'federation' ? 0.004 : 0.012)) {
+      } else if (this.E(Y) >= 2000 && rng.chance(p.type === 'federation' ? 0.004 : 0.012)) {
         const b = ofName(coreName(p));
         const nm = rng.pick([`Second Republic of ${b}`, `Commonwealth of ${b}`, `${b} Directorate`, `Free State of ${b}`, `Restored Kingdom of ${b}`, `People's Assembly of ${b}`]);
         p.names = p.names || [[p.founded ?? this.start, p.name]];
         p.names.push([Y, nm]);
         this.ev(Y - rng.int(0, 49), 'polity', `${rng.pick(['After a constitutional crisis', 'After years of unrest', 'In a bloodless revolution', 'After a disputed succession'])}, ${this.pref(pid, Y - 1)} becomes the ${nm}.`, pid);
-      } else if (!['republic', 'federation', 'union'].includes(p.type) && Y >= 1780 && t >= 7.3 && rng.chance(p.type === 'kingdom' ? (Y >= 2000 ? 0.008 : 0.06) : 0.15)) {
+      } else if (!['republic', 'federation', 'union'].includes(p.type) && this.E(Y) >= 1780 && t >= 7.3 && rng.chance(p.type === 'kingdom' ? (this.E(Y) >= 2000 ? 0.008 : 0.06) : 0.15)) {
         const big = list.length >= 8;
         const nm = p.earth ? `Republic of ${ofName(p.name)}` : big && rng.chance(0.5) ? `Federation of ${p.base ?? p.adj}` : rng.chance(0.5) ? `${p.adj} Republic` : `Republic of ${p.base ?? p.adj}`;
         p.type = big ? 'federation' : 'republic';
@@ -1602,7 +1648,7 @@ class TileSim {
             const [big, small] = (mem.get(b)?.length || 0) >= mem.get(a).length ? [b, a] : [a, b];
             for (let q = 0; q < this.n; q++) if (this.s.owner[q] === small) this.s.owner[q] = big;
             this.pol(small).ended = Y;
-            this.ev(Y - rng.int(0, 49), 'polity', Y >= 1800 ? `${this.pref(small, Y, true)} votes to join ${this.pref(big, Y)}.` : `A dynastic marriage unites ${this.pref(small, Y)} with ${this.pref(big, Y)}.`, big);
+            this.ev(Y - rng.int(0, 49), 'polity', this.E(Y) >= 1800 ? `${this.pref(small, Y, true)} votes to join ${this.pref(big, Y)}.` : `A dynastic marriage unites ${this.pref(small, Y)} with ${this.pref(big, Y)}.`, big);
             return;
           }
         }
@@ -1614,7 +1660,7 @@ class TileSim {
   // than by conquest), first into continental federations, then whole worlds,
   // then federations spanning several worlds across the sheet edges.
   futureUnions(s, Y, mem) {
-    if (Y < 2000) return;
+    if (this.E(Y) < 2000) return;
     const { rng, world } = this;
     const info = new Map();
     let tsum = 0, tn = 0;
@@ -1744,20 +1790,7 @@ class TileSim {
       let best = 0;
       for (let r = 0; r < this.n; r++) if (this.s.tech[r] > this.s.tech[best]) best = r;
       const texts = MILESTONES;
-      const _unused = {
-        1: 'Farming villages appear around {r}.',
-        2: 'Copper-working chiefdoms arise in {r}.',
-        3: 'Bronze, writing and the first cities appear in {r}.',
-        4: 'Iron-working spreads out from {r}.',
-        5: 'A classical age of coinage, philosophy and great roads dawns in {r}.',
-        6: 'Agrarian states mature; {r} becomes a centre of learning and long-distance trade.',
-        7: 'Printing, gunpowder and ocean-going ships transform {r}.',
-        8: 'Industrialisation begins in {r}.',
-        9: '{r} enters the information age.',
-        10: '(Speculative) {r} becomes post-industrial.',
-        11: '(Speculative) Spaceports rise in {r}.',
-      };
-      if (texts[k]) this.ev(Y - this.rng.int(0, 49), 'tech', texts[k].replace('{r}', this.rname(best)));
+      if (texts[k]) this.ev(Y - this.rng.int(0, 49), 'tech', milestoneText(texts[k], this.rname(best), Y));
     }
     this.milestone = lvl;
   }
@@ -1772,7 +1805,7 @@ class TileSim {
       if (size >= 6 && size - before >= Math.max(4, before)) {
         const p = this.pol(pid);
         const c = this.world.cultures.get(p.culture);
-        const ruler = c && c.phon ? rulerName(c.phon, rng, Y, p.type) : 'a new dynasty';
+        const ruler = c && c.phon ? rulerName(c.phon, rng, this.E(Y), p.type) : 'a new dynasty';
         this.ev(Y - rng.int(60, 240), 'war', `Under ${ruler}, ${this.pref(pid, Y)} conquers ${size - before} provinces.`, pid);
       }
       if (size >= 18 && before < 18) {
@@ -1780,13 +1813,13 @@ class TileSim {
       }
     }
     const mean = this.tileMeanTech();
-    if (prevMean - mean > 0.35 && Y < 1900) {
+    if (prevMean - mean > 0.35 && this.E(Y) < 1900) {
       this.ev(Y - rng.int(0, 200), 'disaster', `A dark age settles over ${this.world.tileName(this.x, this.y)}: cities shrink, trade routes fail and old learning is lost.`);
     }
   }
 
   formBlocs() {
-    if (this.end <= 1950 || this.start >= 3000) return;
+    if (this.E(this.end) <= 1950 || this.E(this.start) >= 3000) return;
     const { rng } = this;
     const mem = this.members();
     const cands = [...mem.keys()].filter((p) => this.isHome(p) && !this.pol(p).earth && this.meanTech(mem.get(p)) >= 8.3);
@@ -1800,7 +1833,7 @@ class TileSim {
       if (list.length < 3 || !rng.chance(0.6)) continue;
       const c = this.world.cultures.get(root);
       const base = familyName(c);
-      const from = Math.max(this.start, 1950) + rng.int(0, 50);
+      const from = Math.min(this.end, Math.max(this.start, 1950 - (this.E(this.start) - this.start)) + rng.int(0, 50));
       const name = rng.pick([`${base} Union`, `${base} Community`, `Council of ${base} States`, `${base} Compact`]);
       this.world.blocs.push({ id: this.world.id(), name, from, to: null, home: this.pos, members: list });
       this.ev(from, 'polity', `${list.length} states found the ${name}.`);

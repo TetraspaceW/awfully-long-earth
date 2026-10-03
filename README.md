@@ -108,6 +108,28 @@ technology. It also checks that federation membership matches the macro layer
 whatever order sheets are surveyed in. The effective number of states still
 varies somewhat during the fast 2000–3000 CE unification.
 
+### Drift from Terra
+
+Terra's record (sheet 0,0, 1–2000 CE) is the one fixed point. Every other tile is
+tied to it through chains of boundary conditions, and each link lets history
+wander a little. The macro layer therefore models history's drift from Terra's
+timeline as a **random walk anchored at Terra's record**. Its variance adds up
+with distance:
+- a little per sheet near the present, since Terra's neighbours share its world;
+- more per millennium along Terra's own column;
+- most for places far from Terra in both space and time.
+
+The main walk is an **era shift**: a sheet can run thousands of years ahead of or
+behind Terra's timeline. Its technology, institutions, nation-state era, colonial
+window and federations all follow its own effective year, while sea level and ice
+follow real time. Further walks make some far civilisations persistently unified
+or splintered, more or less dominated by states, and more boom-and-bust.
+
+As a result, Terra's neighbours in 2000 CE run within a few centuries of it. In
+roughly one world in four, though, somewhere far away in 3000 BCE is living in its
+own 2700 CE, complete with a world state. The panel shows each sheet's drift at
+the current date.
+
 ## Assumptions and liberties
 
 - **Geometry**: each sheet is an equirectangular Earth-sized map. Big Earth wraps

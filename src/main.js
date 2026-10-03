@@ -8,6 +8,7 @@ import { buildEarth, prepareEarthGeo } from './earth.js';
 import { generateTile, canGenerate, regionName, T_MIN, T_MAX } from './sim.js';
 import { tileStateAt, players, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
 import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './render.js';
+import { eraShift } from './macro.js';
 
 const STORE = 'awfully-long-earth:world';
 const $ = (id) => document.getElementById(id);
@@ -422,6 +423,7 @@ function renderPanel() {
     <div class="sheet-id">Sheet ${x >= 0 ? '+' : ''}${x} / ${y >= 0 ? '+' : ''}${y}</div>
     <h2>${esc(world.tileName(x, y))}</h2>
     <div class="meta">${chip}<span>${esc(formatRange(t))}</span></div>
+    ${driftNote(x, y)}
   </header>
   <section>
     <h3>Extend the survey</h3>
@@ -496,6 +498,16 @@ function powersHere(x, y) {
       <span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol>
     <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}</p></section>`;
+}
+
+// How far this sheet's history has drifted from Terra's timeline at this date.
+function driftNote(x, y) {
+  const shift = eraShift(state.world.seed, x, y, state.Y);
+  if (Math.abs(shift) < 150) return '';
+  const rounded = Math.round(shift / 50) * 50;
+  const E = state.Y + rounded;
+  const yrs = Math.abs(rounded).toLocaleString('en-US');
+  return `<p class="drift">Living in its own ${esc(formatYear(E))}: ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's timeline</p>`;
 }
 
 function worldsTag(p) {

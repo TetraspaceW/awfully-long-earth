@@ -7,7 +7,8 @@ import { buildEarth } from '../src/earth.js';
 import { generateTile, canGenerate } from '../src/sim.js';
 import { getGeo, edgeLinks, neighbourPos } from '../src/geo.js';
 import { players, fmtPop, fmtMoney } from '../src/stats.js';
-import { federationAt } from '../src/macro.js';
+import { federationAt, eraShift, effectiveYear } from '../src/macro.js';
+import { techCap } from '../src/constants.js';
 import { regionCapacity } from '../src/geo.js';
 import { tileKey } from '../src/constants.js';
 
@@ -132,6 +133,18 @@ for (const t of [-1, -2, -3]) {
     const tv = Object.values(acc).map((l) => avg(l, 'tech'));
     assert.ok(Math.max(...tv) - Math.min(...tv) < 0.4, `order dependence in tech at t=${T}: ${tv.map((x) => x.toFixed(2))}`);
   }
+}
+
+// drift from Terra: tiny next to Terra's record, large far away in space and time
+{
+  let near = 0, farDeep = 0;
+  for (let sd = 1; sd <= 40; sd++) {
+    for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) near = Math.max(near, Math.abs(eraShift(sd, x, y, 2000)));
+    for (let y = -4; y <= 5; y++) for (let x = -5; x <= 4; x++) if (techCap(effectiveYear(sd, x, y, -2500)) >= 10) farDeep++;
+  }
+  console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; world-state-level sheets in 2500 BCE across 40 seeds: ${farDeep}`);
+  assert.ok(near <= 500, 'Terra\'s present-day neighbours drift too far');
+  assert.ok(farDeep >= 1, 'far reaches never get strange enough');
 }
 
 // multi-world federations come from the macro layer, so every sheet agrees on
