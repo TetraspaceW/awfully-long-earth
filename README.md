@@ -110,7 +110,7 @@ kingdom, which war) depends on the order, but the macro picture is meant not to.
 | Modern technology | Each province's level after 1550: the frontier minus a persistent institutional gap that fades after 2000 |
 | State share | How much state-ready land is under states, which depends on technology and the imperial phase |
 | Effective number of states | How unified the sheet is: empires and fragmentation cycle, nation states arrive, then unification |
-| Federations | Each border between sheets has a seeded window of union. Sheets joined by open borders form one federation, identified by its founding border |
+| Federations | Each border between sheets has a seeded window of union. The whole history of federations is worked out once per seed, step by step, so identities persist: a federation keeps its identity as it grows, the larger side keeps it in a merger or split, and borders have hysteresis. A world accedes over about 500 years after joining and secedes over about 500 years before leaving |
 
 Every generation mode is steered towards these targets each step: emergence,
 conquest, collapse, decline and unions forwards; revival, re-merging and

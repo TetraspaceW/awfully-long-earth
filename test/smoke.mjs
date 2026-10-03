@@ -177,11 +177,11 @@ for (const t of [-1, -2, -3]) {
         const Y = h.t * 1000 + k * 250;
         const fed = federationAt(w.seed, h.x, h.y, Y);
         const owners = [...h.snaps[k].owner].filter(Boolean);
-        const inFed = (o) => w.polities.get(o)?.key === (fed && `fed:${fed.edge.id}`);
+        const inFed = (o) => w.polities.get(o)?.key === (fed && fed.key);
         const share = owners.length ? owners.filter(inFed).length / owners.length : 0;
         // (a sheet takes a step or two to accede after its federation forms)
-        if (fed && Y >= fed.edge.J + 250 && !(federationAt(w.seed, h.x, h.y, Y - 100) === null)) {
-          assert.ok(share > 0.5, `${h.x},${h.y} at ${Y} should be in ${fed.edge.id} (share ${share.toFixed(2)})`);
+        if (fed && fed.share >= 0.6) {
+          assert.ok(share >= fed.share - 0.15, `${h.x},${h.y} at ${Y} should be in ${fed.edge.id} (share ${share.toFixed(2)})`);
         }
         if (!fed) assert.ok(!owners.some((o) => w.polities.get(o)?.macro), `${h.x},${h.y} at ${Y} holds a federation it is not in`);
       }
@@ -193,6 +193,28 @@ for (const t of [-1, -2, -3]) {
   for (const t of [1, 2, 3, 4, 5]) generateTile(b, 2, 0, t);   // far sheet first this time
   for (const t of [5, 4, 3, 2, 1]) if (!b.hasTile(1, 0, t)) generateTile(b, 1, 0, t);
   check(a); check(b);
+  // smooth: no world flips wholesale in or out between snapshots, and the two
+  // survey orders agree on how far each world has acceded
+  let maxJump = 0, diff = 0, n = 0;
+  for (const [x, y] of [[1, 0], [2, 0]]) {
+    let prev = null;
+    for (let Y = 2250; Y < 6000; Y += 250) {
+      const t = Math.floor(Y / 1000), k = (Y % 1000) / 250;
+      const val = (w) => {
+        const sn = w.tile(x, y, t).snaps[k];
+        let own = 0, f = 0;
+        for (const o of sn.owner) if (o) { own++; if (w.polities.get(o)?.macro) f++; }
+        return own ? f / own : 0;
+      };
+      const va = val(a), vb = val(b);
+      diff += Math.abs(va - vb); n++;
+      if (prev !== null) maxJump = Math.max(maxJump, Math.abs(va - prev));
+      prev = va;
+    }
+  }
+  console.log(`federations: largest change in a world's federated share between snapshots ${maxJump.toFixed(2)}; mean difference between survey orders ${(diff / n).toFixed(3)}`);
+  assert.ok(maxJump <= 0.8, 'a world flips wholesale into or out of a federation');
+  assert.ok(diff / n < 0.05, 'survey order changes how far worlds have federated');
   console.log('federation membership agrees with the macro layer in both survey orders');
 }
 

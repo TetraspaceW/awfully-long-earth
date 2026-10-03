@@ -113,85 +113,139 @@ export function macroTech(seed, x, y, Y) { return techCap(effectiveYear(seed, x,
 
 // ------------------------------------------------------ multi-world federations
 //
-// Each border between two sheets has its own window of union, drawn from the
-// seed. At any year, sheets joined by open borders form one federation, whose
-// identity is its earliest open border. Every sheet asks the same question and
-// gets the same answer, whatever order it is surveyed in.
+// Each border between two sheets has a seeded window of union (in effective
+// years). The whole history of federations is worked out once per seed, step by
+// step through time, so identities persist: a federation keeps its identity as
+// it grows; when two merge, or one splits, the larger part keeps it. Borders have
+// hysteresis so they don't flicker. A sheet's accession ramps up over a couple
+// of centuries after it joins and down before it leaves (the share of the sheet
+// inside the federation), and every generation mode steers towards that share.
+// Every sheet gets the same answer whatever order it is surveyed in.
 
 const FED_START = 2400; // in effective years
-let edgeCache = null;
+const STEP = 50, T0 = -30000, T1 = 10050;
+const RAMP = 500;       // years for a world to accede fully, or to leave
+const MIN_STAY = 150;   // shorter memberships are treated as noise
 
-function edges(seed) {
-  if (edgeCache && edgeCache.seed === seed) return edgeCache.list;
-  const list = [];
-  for (let y = ROW_MIN; y <= ROW_MAX; y++) {
-    for (let x = -5; x < 5; x++) {
-      const add = (bx, by) => {
-        const id = `${x},${y}|${bx},${by}`;
-        const J = FED_START + Math.round(3200 * u01(seed, 'fedJ', id) ** 1.3 / 50) * 50;
-        const D = 800 + Math.round(4500 * u01(seed, 'fedD', id) / 50) * 50;
-        list.push({ id, a: `${x},${y}`, b: `${bx},${by}`, J, end: J + D });
-      };
-      add(wrapX(x + 1), y);
-      if (y < ROW_MAX) add(x, y + 1);
+let timeline = null;
+
+function buildTimeline(seed) {
+  const sheets = [];
+  for (let y = ROW_MIN; y <= ROW_MAX; y++) for (let x = -5; x < 5; x++) sheets.push([x, y]);
+  const idx = new Map(sheets.map(([x, y], i) => [`${x},${y}`, i]));
+  const edges = [];
+  for (const [x, y] of sheets) {
+    const add = (bx, by) => {
+      const id = `${x},${y}|${bx},${by}`;
+      const J = FED_START + Math.round(3200 * u01(seed, 'fedJ', id) ** 1.3 / 50) * 50;
+      const D = 800 + Math.round(4500 * u01(seed, 'fedD', id) / 50) * 50;
+      edges.push({ id, a: idx.get(`${x},${y}`), b: idx.get(`${bx},${by}`), J, end: J + D, open: false });
+    };
+    add(wrapX(x + 1), y);
+    if (y < ROW_MAX) add(x, y + 1);
+  }
+  const nS = sheets.length, nT = Math.round((T1 - T0) / STEP) + 1;
+  const ids = Array.from({ length: nS }, () => new Int32Array(nT));   // federation id per sheet per step (0 = none)
+  const feds = [null];                                                  // id -> { edge, founded }
+  let prev = new Map();                                                 // id -> Set of sheets
+  for (let k = 0; k < nT; k++) {
+    const Y = T0 + k * STEP;
+    const E = sheets.map(([x, y]) => effectiveYear(seed, x, y, Y));
+    // borders: open once both sides are well into the window; close at its end or
+    // if either side falls well back out of the federal era
+    const parent = Int32Array.from({ length: nS }, (_, i) => i);
+    const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+    for (const e of edges) {
+      const avg = (E[e.a] + E[e.b]) / 2, lo = Math.min(E[e.a], E[e.b]);
+      if (!e.open && avg >= e.J && avg < e.end - 100 && lo >= FED_START) e.open = true;
+      else if (e.open && (avg >= e.end || lo < FED_START - 300 || avg < e.J - 300)) e.open = false;
+      if (e.open) { const ra = find(e.a), rb = find(e.b); if (ra !== rb) parent[ra] = rb; }
+    }
+    const clusters = new Map();
+    for (let i = 0; i < nS; i++) { const r = find(i); if (!clusters.has(r)) clusters.set(r, []); clusters.get(r).push(i); }
+    // match clusters to last step's federations by overlap; the largest overlap keeps the identity
+    const claims = [];
+    for (const members of clusters.values()) {
+      if (members.length < 2) continue;
+      const overlap = new Map();
+      for (const m of members) { const old = k ? ids[m][k - 1] : 0; if (old) overlap.set(old, (overlap.get(old) || 0) + 1); }
+      for (const [old, n] of overlap) claims.push({ members, old, n });
+      if (!overlap.size) claims.push({ members, old: 0, n: 0 });
+    }
+    claims.sort((a, b) => b.n - a.n || (prev.get(b.old)?.size || 0) - (prev.get(a.old)?.size || 0));
+    const taken = new Set(), assigned = new Map();
+    for (const c of claims) {
+      if (assigned.has(c.members)) continue;
+      if (c.old && !taken.has(c.old)) { taken.add(c.old); assigned.set(c.members, c.old); }
+    }
+    const now = new Map();
+    for (const members of clusters.values()) {
+      if (members.length < 2) continue;
+      let id = assigned.get(members);
+      if (!id) {
+        // a new federation, named after its founding border
+        const e = edges.filter((ed) => ed.open && members.includes(ed.a)).sort((p, q) => p.J - q.J || (p.id < q.id ? -1 : 1))[0];
+        id = feds.length;
+        feds.push({ edge: e, founded: Y });
+      }
+      for (const m of members) ids[m][k] = id;
+      now.set(id, new Set(members));
+    }
+    prev = now;
+  }
+  // memberships shorter than MIN_STAY are noise; drop them
+  for (let i = 0; i < nS; i++) {
+    const a = ids[i];
+    let k = 0;
+    while (k < nT) {
+      if (!a[k]) { k++; continue; }
+      let j = k;
+      while (j < nT && a[j]) j++;
+      if ((j - k) * STEP < MIN_STAY) a.fill(0, k, j);
+      k = j;
     }
   }
-  edgeCache = { seed, list };
-  return list;
+  return { seed, sheets, idx, ids, feds, nT };
 }
 
-const fedMemo = new Map();
+function tl(seed) {
+  if (!timeline || timeline.seed !== seed) timeline = buildTimeline(seed);
+  return timeline;
+}
 
-// The federation (if any) that sheet (x,y) belongs to in year Y.
+// The federation (if any) sheet (x,y) belongs to in year Y, and how far it has
+// acceded (share in (0,1]: ramps up after joining and down before leaving).
 export function federationAt(seed, x, y, Y) {
-  if (effectiveYear(seed, x, y, Y) < FED_START) return null;
-  const key = `${seed}|${Y}`;
-  let clusters = fedMemo.get(key);
-  if (!clusters) {
-    const parent = new Map();
-    const find = (a) => { while (parent.get(a) !== a) { parent.set(a, parent.get(parent.get(a))); a = parent.get(a); } return a; };
-    // a border is open when both sides, in their own effective era, are inside its window
-    const effAt = new Map();
-    const eff = (k) => {
-      if (!effAt.has(k)) { const [a, b] = k.split(',').map(Number); effAt.set(k, effectiveYear(seed, a, b, Y)); }
-      return effAt.get(k);
-    };
-    const open = edges(seed).filter((e) => {
-      const E = (eff(e.a) + eff(e.b)) / 2;
-      return E >= e.J && E < e.end && Math.min(eff(e.a), eff(e.b)) >= FED_START;
-    });
-    for (const e of open) { if (!parent.has(e.a)) parent.set(e.a, e.a); if (!parent.has(e.b)) parent.set(e.b, e.b); }
-    for (const e of open) { const ra = find(e.a), rb = find(e.b); if (ra !== rb) parent.set(ra, rb); }
-    clusters = new Map();
-    const founding = new Map();
-    for (const e of open) {
-      const r = find(e.a);
-      const f = founding.get(r);
-      if (!f || e.J < f.J || (e.J === f.J && e.id < f.id)) founding.set(r, e);
-    }
-    for (const [sheet] of parent) {
-      const r = find(sheet);
-      const members = [...parent.keys()].filter((s) => find(s) === r);
-      clusters.set(sheet, { edge: founding.get(r), members });
-    }
-    if (fedMemo.size > 400) fedMemo.clear();
-    fedMemo.set(key, clusters);
-  }
-  return clusters.get(`${wrapX(x)},${y}`) || null;
+  const T = tl(seed);
+  const k = Math.round((Y - T0) / STEP);
+  if (k < 0 || k >= T.nT) return null;
+  const i = T.idx.get(`${wrapX(x)},${y}`);
+  const a = T.ids[i];
+  const id = a[k];
+  if (!id) return null;
+  let s = k, e = k;
+  while (s > 0 && a[s - 1]) s--;
+  while (e < T.nT - 1 && a[e + 1]) e++;
+  const joined = T0 + s * STEP, leaves = T0 + (e + 1) * STEP;
+  const share = clamp(Math.min((Y - joined + STEP) / RAMP, (leaves - Y) / RAMP), 0.05, 1);
+  const members = [];
+  for (let j = 0; j < T.sheets.length; j++) if (T.ids[j][k] === id) members.push(T.sheets[j].join(','));
+  const f = T.feds[id];
+  return { id, key: `fed:${id}:${f.edge.id}`, edge: f.edge, founded: f.founded, nameSheet: T.sheets[f.edge.a], members, share, joined, leaves };
 }
 
 // The polity record for a federation, created on first use by any sheet.
 export function federationPolity(world, fed, Y) {
-  const key = `fed:${fed.edge.id}`;
+  const key = fed.key;
   let id = world.byKey(key);
   if (id && world.polities.has(id)) return id;
   const rng = new Rng(hashN(world.seed, key));
-  const [ax, ay] = fed.edge.a.split(',').map(Number);
+  const [ax, ay] = fed.nameSheet;
   const core = world.tileName(ax, ay).replace(/^the /, '');
   const name = rng.pick([`${core} Concord of Worlds`, `United Worlds of ${core}`, `${core} Interworld Federation`, `Commonwealth of the ${core} Worlds`]);
   id = world.addPolity({
     key, name, adj: core, base: core, core, culture: 0, type: 'federation', macro: true,
-    founded: Y, ended: null, capital: { x: ax, y: ay, r: -1 }, home: fed.edge.a,
+    founded: fed.founded, ended: null, capital: { x: ax, y: ay, r: -1 }, home: `${ax},${ay}`,
     color: [Math.round(rng.range(0, 360)), 70, 52], agg: 1,
   });
   return id;

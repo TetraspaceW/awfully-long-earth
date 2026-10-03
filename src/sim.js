@@ -852,77 +852,125 @@ class TileSim {
 
   // ---------------------------------------------------- multi-world federations
 
-  // Forwards: join the federation the macro layer says this world belongs to.
+  // Share of this sheet's state-held provinces that belong to federation F.
+  fedShare(F) {
+    let fed = 0, owned = 0;
+    for (const o of this.s.owner) if (o) { owned++; if (o === F) fed++; }
+    return owned ? fed / owned : 0;
+  }
+
+  // Forwards: follow the macro layer's federation membership and accession share.
   fedStep(Y) {
     const { world, rng } = this;
     const fed = federationAt(world.seed, this.x, this.y, Y);
     const F = fed ? federationPolity(world, fed, Y) : 0;
-    const present = new Set();
-    for (const o of this.s.owner) if (o && this.pol(o).macro) present.add(o);
-    for (const G of present) {
-      if (G === F) continue;
+    const want = fed ? fed.share : 0;
+    // a different federation here: the macro layer merged or split it
+    for (const G of new Set(this.s.owner)) {
+      if (!G || G === F || !this.pol(G).macro) continue;
       if (F) {
         for (let r = 0; r < this.n; r++) if (this.s.owner[r] === G) this.s.owner[r] = F;
-        this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(G, Y - 1, true)} is reconstituted as ${this.pref(F, Y)}.`, F);
+        this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(G, Y - 1, true)} merges into ${this.pref(F, Y)}.`, F);
       } else {
-        this.fragment(G, Y, `${this.pref(G, Y - 1, true)} dissolves, and ${this.world.tileName(this.x, this.y)} goes its own way.`);
+        this.peel(G, 0, Y, true);
       }
     }
     if (!F) return;
-    const mem = this.members();
-    let first = !present.has(F);
-    for (const [pid, list] of mem) {
-      if (pid === F || this.pol(pid).macro || this.isDestined(pid) || this.meanTech(list) < 9) continue;
-      if (!this.warm && !rng.chance(0.5)) continue;
-      for (const r of list) this.s.owner[r] = F;
-      if (this.isHome(pid) && !this.extPower(pid, 0, Y).c) this.pol(pid).ended = Y;
-      const yy = Y - rng.int(0, 49);
-      if (first) {
-        this.ev(yy, 'polity', `${this.world.tileName(this.x, this.y)} joins ${this.pref(F, Y)}, a federation of ${fed.members.length} worlds, as ${this.pref(pid, Y)} accedes.`, F);
-        first = false;
-      } else {
-        this.ev(yy, 'polity', `${this.pref(pid, Y, true)} accedes to ${this.pref(F, Y)}.`, F);
-      }
-    }
+    const have = this.fedShare(F);
+    if (have < want - 0.02) this.accede(F, want, Y, fed, true);
+    else if (have > want + 0.02) this.peel(F, want, Y, true);
   }
 
-  // Backwards: before this world joined (or after it left) a federation.
+  // Backwards: before Y the sheet held share(Yp) in federation Fp.
   backFed(Y, Yp) {
     const { world, rng } = this;
     const fed = federationAt(world.seed, this.x, this.y, Yp);
     const Fp = fed ? federationPolity(world, fed, Yp) : 0;
-    const present = new Set();
-    for (const o of this.s.owner) if (o && this.pol(o).macro) present.add(o);
-    for (const G of present) {
-      if (G === Fp) continue;
-      const regs = [];
-      for (let r = 0; r < this.n; r++) if (this.s.owner[r] === G) regs.push(r);
-      const yy = Y - rng.int(0, 49);
+    const want = fed ? fed.share : 0;
+    for (const G of new Set(this.s.owner)) {
+      if (!G || G === Fp || !this.pol(G).macro) continue;
       if (Fp) {
-        for (const r of regs) this.s.owner[r] = Fp;
-        this.ev(yy, 'polity', `${this.pref(Fp, Yp, true)} is reconstituted as ${this.pref(G, Y)}.`, G);
-        continue;
+        // forwards, Fp merged into G at Y
+        for (let r = 0; r < this.n; r++) if (this.s.owner[r] === G) this.s.owner[r] = Fp;
+        this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(Fp, Yp, true)} merges into ${this.pref(G, Y)}.`, G);
+      } else {
+        this.peel(G, 0, Y, false, Yp);
       }
-      // the world state that acceded
-      const capR = regs.reduce((a, b) => (this.cap(b, Y) > this.cap(a, Y) ? b : a));
-      const w = this.createPolity(capR, Yp, null, { type: 'federation' });
-      if (!w) continue;
-      for (const r of regs) this.s.owner[r] = w;
-      const pw = this.pol(w);
-      pw.founded = null; pw.ended = yy;
-      this.makeSched(w, regs.length, Yp);
-      this.ev(yy, 'polity', `${world.tileName(this.x, this.y)} joins ${this.pref(G, Y)}, as ${this.pref(w, Yp)} accedes.`, G);
     }
-    if (Fp && !present.has(Fp)) {
-      // forwards, the federation dissolved here at Y and its states went their own way
-      const states = new Set();
-      for (let r = 0; r < this.n; r++) {
-        const o = this.s.owner[r];
-        if (o && this.s.tech[r] >= 9) { states.add(o); this.s.owner[r] = Fp; }
+    if (!Fp) return;
+    const have = this.fedShare(Fp);
+    if (have > want + 0.02) this.peel(Fp, want, Y, false, Yp);
+    else if (have < want - 0.02) this.accede(Fp, want, Y, fed, false, Yp);
+  }
+
+  // Bring whole states into F until it holds `want` of the sheet. Forwards they
+  // accede; backwards (forward = false) they had seceded at Y.
+  accede(F, want, Y, fed, forward, Yp = Y) {
+    const { rng } = this;
+    const mem = this.members();
+    const owned = [...mem.values()].reduce((a, l) => a + l.length, 0);
+    let have = mem.get(F)?.length || 0;
+    const states = rng.shuffle([...mem.keys()].filter((p) => p !== F && !this.pol(p).macro && !this.isDestined(p)))
+      .sort((a, b) => mem.get(b).length - mem.get(a).length);
+    const first = have === 0;
+    for (const pid of states) {
+      if (have / owned >= want - 0.02) break;
+      const list = mem.get(pid);
+      for (const r of list) this.s.owner[r] = F;
+      have += list.length;
+      const yy = Y - rng.int(0, 49);
+      const p = this.pol(pid);
+      if (forward) {
+        if (this.isHome(pid) && !this.extPower(pid, 0, Y).c) p.ended = yy;
+        if (!this.warm) this.ev(yy, 'polity', first && pid === states[0]
+          ? `${this.world.tileName(this.x, this.y)} begins to join ${this.pref(F, Y)}, a federation of ${fed.members.length} worlds, as ${this.pref(pid, Y)} accedes.`
+          : `${this.pref(pid, Y, true)} accedes to ${this.pref(F, Y)}.`, F);
+      } else {
+        if (!p.earth) p.founded = yy;
+        if (this.sched) this.sched.delete(pid);
+        this.ev(yy, 'polity', `${this.pref(pid, Y, true)} secedes from ${this.pref(F, Yp)}.`, F);
       }
-      for (const o of states) { const p = this.pol(o); if (!p.earth) p.founded = Y; this.sched.delete(o); }
-      if (states.size) this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(Fp, Yp, true)} dissolves, and ${world.tileName(this.x, this.y)} goes its own way.`, Fp);
     }
+  }
+
+  // Release F's provinces here, a people at a time, until F holds `want`. Forwards
+  // they secede as new states; backwards (forward = false) they were states that
+  // acceded at Y.
+  peel(F, want, Y, forward, Yp = Y) {
+    const { rng } = this;
+    const regs = [];
+    for (let r = 0; r < this.n; r++) if (this.s.owner[r] === F) regs.push(r);
+    let owned = 0;
+    for (const o of this.s.owner) if (o) owned++;
+    let have = regs.length;
+    const comps = rng.shuffle(this.components(regs).flatMap((c) => this.byCulture(c)));
+    const all = want <= 0;
+    for (const comp of comps) {
+      if (!all && have / owned <= want + 0.02) break;
+      const best = comp.reduce((a, b) => (this.s.tech[b] > this.s.tech[a] ? b : a));
+      const np = this.createPolity(best, forward ? Y : Yp, null, { type: rng.pick(['republic', 'federation', 'union']) });
+      if (!np) continue;
+      for (const r of comp) this.s.owner[r] = np;
+      have -= comp.length;
+      const yy = Y - rng.int(0, 49);
+      if (forward) {
+        if (!this.warm) this.ev(yy, 'polity', all && have === 0
+          ? `The last provinces of ${this.world.tileName(this.x, this.y)} leave ${this.pref(F, Y)}, as ${this.pref(np, Y)} goes its own way.`
+          : `${this.pref(np, Y, true)} secedes from ${this.pref(F, Y)}.`, F);
+      } else {
+        const p = this.pol(np);
+        p.founded = null; p.ended = yy;
+        if (this.sched) this.makeSched(np, comp.length, Yp);
+        this.ev(yy, 'polity', `${this.pref(np, Yp, true)} accedes to ${this.pref(F, Y)}.`, F);
+      }
+    }
+  }
+
+  // split a connected set of provinces by people
+  byCulture(comp) {
+    const by = new Map();
+    for (const r of comp) { const c = this.s.culture[r]; if (!by.has(c)) by.set(c, []); by.get(c).push(r); }
+    return [...by.values()].flatMap((l) => this.components(l));
   }
 
   // Forward in time: a people is absorbed by its neighbours.
