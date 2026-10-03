@@ -11,26 +11,24 @@
 // is, how much of it is under states, how unified it is, which federation holds
 // it) does not depend on the order, and does not jump at sheet edges.
 
-import { COLS, ROW_MIN, ROW_MAX, W, H, techCap } from './constants.js';
+import { W, H, GX0, GY0, techCap } from './constants.js';
 import { hashN, Rng } from './rng.js';
 
 const u01 = (...k) => hashN(...k) / 4294967296;
 const fade = (t) => t * t * (3 - 2 * t);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const wrapG = (gx) => ((((gx + 5) % COLS) + COLS) % COLS) - 5;
 
 // Position of a province: its centroid in continuous sheet units.
 export function regionPos(x, y, reg) { return [x + (reg.cx + 0.5) / W, y + (reg.cy + 0.5) / H]; }
 export function sheetCentre(x, y) { return [x + 0.5, y + 0.5]; }
 
 // Smooth noise in [0,1] over space and time. Lattice every 2 sheets and
-// `period` years; periodic east-west like Big Earth.
+// `period` years. Big Earth is an endless plane, so nothing repeats.
 function field(seed, tag, gx, gy, Y, period) {
-  const fx = (wrapG(gx) + 5) / 2, fy = (gy - ROW_MIN) / 2, fz = Y / period;
+  const fx = (gx - GX0) / 2, fy = (gy - GY0) / 2, fz = Y / period;
   const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
   const tx = fade(fx - ix), ty = fade(fy - iy), tz = fade(fz - iz);
-  const P = COLS / 2;
-  const v = (a, b, c) => u01(seed, tag, ((a % P) + P) % P, b, c);
+  const v = (a, b, c) => u01(seed, tag, a, b, c);
   let s = 0;
   for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) {
     s += v(ix + a, iy + b, iz + c) * (a ? tx : 1 - tx) * (b ? ty : 1 - ty) * (c ? tz : 1 - tz);
@@ -47,8 +45,7 @@ function field(seed, tag, gx, gy, Y, period) {
 // walk anchored at Terra, whose variance adds up with distance.
 
 function terraDistance(gx, gy, Y) {
-  const x = wrapG(gx);
-  const dx = Math.max(0, -x, x - 1), dy = Math.max(0, -gy, gy - 1);
+  const dx = Math.max(0, -gx, gx - 1), dy = Math.max(0, -gy, gy - 1);
   const ds = Math.sqrt(dx * dx + dy * dy);
   const dt = Y < 0 ? -Y / 1000 : Y > 2000 ? (Y - 2000) / 1000 : 0;
   return { ds, dt };
@@ -124,8 +121,9 @@ export function macroTech(seed, gx, gy, Y) { return techCap(effectiveYear(seed, 
 
 // ------------------------------------------------------------- federations
 //
-// Federations are territorial. Each seed has a few dozen federation cores at
-// fixed places. A core lights up once its own surroundings reach its founding
+// Federations are territorial. Federation cores sit at fixed places: Big Earth
+// is cut into unit cells (one sheet each), and most cells hold one core at a
+// seeded spot. A core lights up once its own surroundings reach its founding
 // era (in local effective years), then its domain grows outward over centuries,
 // holds, and contracts as the core's era ends. A province belongs to the core
 // whose domain reaches furthest past it, provided the province itself is in the
@@ -133,27 +131,28 @@ export function macroTech(seed, gx, gy, Y) { return techCap(effectiveYear(seed, 
 // whenever their domains do, and their frontiers move continuously.
 
 const FED_ERA = 2400;   // local effective year from which provinces can federate
-const N_CORES = 70;
-let coreCache = null;
+const FED_RAMP = 600;   // years over which a region's reach into federations grows
+const CORE_P = 0.7;      // share of cells holding a core
+const CORE_REACH = 4;   // cells to search: a core's radius never exceeds 3.3
 
-function cores(seed) {
-  if (coreCache && coreCache.seed === seed) return coreCache.list;
-  const list = [];
-  for (let i = 0; i < N_CORES; i++) {
-    const u = (t) => u01(seed, 'core', i, t);
-    list.push({
-      i,
-      gx: -5 + 10 * u('x'),
-      gy: ROW_MIN + (ROW_MAX - ROW_MIN + 1) * u('y'),
-      J: FED_ERA + 3500 * u('J') ** 1.3,           // founding, in local effective years
-      grow: 600 + 1800 * u('g'),                   // years to reach full extent
-      span: 1500 + 5000 * u('D'),                  // how long it lasts
-      R: 0.5 + 2.8 * u('R') ** 0.8,                // full radius in sheet widths
-      w: 0.7 + 0.6 * u('w'),                       // pull where domains overlap
-    });
-  }
-  coreCache = { seed, list };
-  return list;
+const coreMemo = new Map();
+function coreAt(seed, cx, cy) {
+  const key = `${seed}|${cx}|${cy}`;
+  if (coreMemo.has(key)) return coreMemo.get(key);
+  const u = (t) => u01(seed, 'core', cx, cy, t);
+  const c = u('p') < CORE_P ? {
+    i: `${cx}:${cy}`,
+    gx: cx + u('x'),
+    gy: cy + u('y'),
+    J: FED_ERA + 3500 * u('J') ** 1.3,           // founding, in local effective years
+    grow: 600 + 1800 * u('g'),                   // years to reach full extent
+    span: 1500 + 5000 * u('D'),                  // how long it lasts
+    R: 0.5 + 2.8 * u('R') ** 0.8,                // full radius in sheet widths
+    w: 0.7 + 0.6 * u('w'),                       // pull where domains overlap
+  } : null;
+  if (coreMemo.size > 20000) coreMemo.clear();
+  coreMemo.set(key, c);
+  return c;
 }
 
 function coreRadius(seed, c, Y) {
@@ -166,47 +165,48 @@ function coreRadius(seed, c, Y) {
 }
 
 const radiusMemo = new Map();
-function radii(seed, Y) {
-  const key = `${seed}|${Y}`;
+function radius(seed, c, Y) {
+  const key = `${seed}|${c.i}|${Y}`;
   let r = radiusMemo.get(key);
-  if (!r) {
-    r = cores(seed).map((c) => coreRadius(seed, c, Y));
-    if (radiusMemo.size > 2000) radiusMemo.clear();
+  if (r === undefined) {
+    r = coreRadius(seed, c, Y);
+    if (radiusMemo.size > 50000) radiusMemo.clear();
     radiusMemo.set(key, r);
   }
   return r;
 }
 
-function dist(ax, ay, bx, by) {
-  let dx = Math.abs(wrapG(ax) - wrapG(bx));
-  if (dx > COLS / 2) dx = COLS - dx;
-  return Math.hypot(dx, ay - by);
-}
+const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
 
 // The federation (if any) holding position (gx, gy) in year Y.
 export function federationAt(seed, gx, gy, Y) {
-  if (effectiveYear(seed, gx, gy, Y) < FED_ERA) return null;
-  const rs = radii(seed, Y);
-  let best = null, bs = 0;
-  for (const c of cores(seed)) {
-    const r = rs[c.i];
-    if (r <= 0.02) continue;
+  const E = effectiveYear(seed, gx, gy, Y);
+  if (E < FED_ERA) return null;
+  // a region entering the federal era joins from the core outward, not all at once
+  const ramp = fade(clamp((E - FED_ERA) / FED_RAMP, 0, 1));
+  let best = null, bs = 0, br = 0;
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  for (let cy = y0 - CORE_REACH; cy <= y0 + CORE_REACH; cy++) for (let cx = x0 - CORE_REACH; cx <= x0 + CORE_REACH; cx++) {
+    const c = coreAt(seed, cx, cy);
+    if (!c) continue;
     const d = dist(gx, gy, c.gx, c.gy);
-    if (d >= r) continue;
+    if (d >= c.R) continue;
+    const r = radius(seed, c, Y) * ramp;
+    if (r <= 0.02 || d >= r) continue;
     const s = c.w * (1 - d / r);
-    if (s > bs) { bs = s; best = c; }
+    if (s > bs) { bs = s; best = c; br = r; }
   }
   if (!best) return null;
-  return { id: best.i, key: `fed:core:${best.i}`, core: best, radius: rs[best.i] };
+  return { id: best.i, key: `fed:core:${best.i}`, core: best, radius: br / ramp };
 }
 
 // How many sheets (worlds) a federation's domain touches in year Y.
 export function federationWorlds(seed, fed, Y) {
-  const r = radii(seed, Y)[fed.id];
+  const r = radius(seed, fed.core, Y), { gx, gy } = fed.core;
   let n = 0;
-  for (let y = ROW_MIN; y <= ROW_MAX; y++) for (let x = -5; x < 5; x++) {
-    const nx = clamp(wrapG(fed.core.gx), x, x + 1), ny = clamp(fed.core.gy, y, y + 1);
-    if (dist(fed.core.gx, fed.core.gy, nx, ny) < r) n++;
+  for (let y = Math.floor(gy - r); y <= Math.floor(gy + r); y++) for (let x = Math.floor(gx - r); x <= Math.floor(gx + r); x++) {
+    const nx = clamp(gx, x, x + 1), ny = clamp(gy, y, y + 1);
+    if (dist(gx, gy, nx, ny) < r) n++;
   }
   return n;
 }
@@ -217,7 +217,7 @@ export function federationPolity(world, fed, Y) {
   let id = world.byKey(key);
   if (id && world.polities.has(id)) return id;
   const rng = new Rng(hashN(world.seed, key));
-  const sx = Math.floor(wrapG(fed.core.gx)), sy = Math.floor(fed.core.gy);
+  const sx = Math.floor(fed.core.gx), sy = Math.floor(fed.core.gy);
   const core = world.tileName(sx, sy).replace(/^the /, '');
   const name = rng.pick([`${core} Concord of Worlds`, `United Worlds of ${core}`, `${core} Interworld Federation`, `Commonwealth of the ${core} Worlds`]);
   id = world.addPolity({

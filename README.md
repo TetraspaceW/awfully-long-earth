@@ -2,8 +2,8 @@
 
 An explorable alternate Earth that just keeps going, frozen at a single moment: **2000 CE**.
 
-**Big Earth** has 100 times the surface area of Earth: a 10 × 10 grid of Earth-sized
-*sheets*. Real Earth is one of them, sheet **Terra (0, 0)**, exactly as it was in 2000:
+**Big Earth** is endless: a plane of Earth-sized *sheets* that goes on forever in every
+direction, with no wrap-around and no poles. Real Earth is one of them, sheet **Terra (0, 0)**, exactly as it was in 2000:
 the United States, the European Union, China and the rest. On Big Earth they are regional
 players among many. Every other sheet is generated so that it is drawn from the same
 distributions as Earth, and continues it across its edges.
@@ -33,6 +33,7 @@ npm run build-earth # re-rasterises Natural Earth country outlines (needs networ
 
 - **Click a `+` sheet** to reveal it. The panel's compass buttons reveal the selected
   sheet's north, west, east and south neighbours, or take you to them.
+- **Map buttons**: **Terra** recentres on Earth; **All** fits every revealed sheet.
 - **Map modes**: states, peoples (language families, where related peoples share
   hues), technology, population density, and terrain.
 - **Panel**: the leading powers on the sheet and across all revealed Big Earth
@@ -127,7 +128,7 @@ map is cut up, not features of the territory.
 | Modern technology | Each province's level after 1550: the frontier minus a persistent institutional gap that fades after 2000 |
 | State share | How much state-ready land is under states, which depends on technology and the imperial phase |
 | Effective number of states | How unified a region is: empires and fragmentation cycle, nation states arrive, then unification |
-| Federations | Territorial. Each seed has a few dozen federation cores at fixed places. A core lights up once its surroundings reach its founding era, then its domain grows outward over centuries, holds, and contracts as its era ends. A province belongs to the core whose domain reaches furthest past it, if the province itself is in the federal era. Domains ignore sheet edges, so a federation spans worlds whenever its domain does, and frontiers move continuously |
+| Federations | Territorial. Federation cores sit at fixed places, about seven for every ten sheets. A core lights up once its surroundings reach its founding era, then its domain grows outward over centuries, holds, and contracts as its era ends. A province belongs to the core whose domain reaches furthest past it, if the province itself is in the federal era. A region entering that era is drawn in from the core outward over about 600 years, rather than all at once. Domains ignore sheet edges, so a federation spans worlds whenever its domain does, and frontiers move continuously |
 
 Every generation mode is steered towards these targets each step: emergence,
 conquest, collapse, decline and unions forwards; revival, re-merging and
@@ -157,20 +158,23 @@ window and federations all follow its own effective year, while sea level and ic
 follow real time. Further walks make some far civilisations persistently unified
 or splintered, more or less dominated by states, and more boom-and-bust.
 
-As a result, Terra's neighbours in 2000 CE run within a few centuries of it. In
+As a result, Terra's neighbours in 2000 CE run within a few centuries of it. The
+drift keeps growing with distance: tens of sheets out, whole worlds run a millennium
+or more ahead or behind, and a hundred sheets out they can be thousands of years
+off, still in the Bronze Age or long past any world state Terra has seen. In
 roughly one world in four, though, somewhere far away in 3000 BCE is living in its
 own 2700 CE, complete with a world state. In 2000 CE the panel shows how far
 each sheet's development runs ahead of or behind Terra's.
 
 ## Assumptions and liberties
 
-- **Geometry**: each sheet is an equirectangular Earth-sized map. Big Earth wraps
-  east–west and has real poles at its top and bottom rows. Climate bands repeat
-  within every row of sheets, plus a global gradient towards Big Earth's poles, so
+- **Geometry**: each sheet is an equirectangular Earth-sized map, and Big Earth is
+  an endless flat plane of them. Climate bands repeat within every row of sheets, so
   Terra's Arctic and Antarctic sit against cold belts on the neighbouring sheets.
-  Terrain is noise tuned to Earth's roughly 30% land, bent near Terra's edges so its
-  coastlines continue. Physics, such as surface gravity on a planet 10 times wider,
-  is ignored.
+  With no poles there is no global gradient. Instead, broad warm and cold regions a
+  few sheets across come and go. Terrain is noise tuned to Earth's roughly 30% land,
+  bent near Terra's edges so its coastlines continue. Physics, such as what holds an
+  infinite plane together, is ignored.
 - **Earth's record (1–2000 CE)** is hand-authored at 250-year snapshots on
   provinces that are modern countries, with the big ones split. Borders are coarse.
   Present-day borders, population and GDP come from Natural Earth 1:50m (public

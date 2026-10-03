@@ -1,7 +1,7 @@
 // Browser UI: a pannable map of Big Earth's sheets in 2000 CE and a panel for the
 // selected sheet. Click a "+" sheet to reveal (generate) it.
 
-import { W, H, ROW_MIN, ROW_MAX, COLS, wrapX, tileKey, formatYear, eraName } from './constants.js';
+import { W, H, tileKey, formatYear, eraName } from './constants.js';
 import { getGeo, BIOME_NAMES, cellBiome, neighbourPos } from './geo.js';
 import { World } from './world.js';
 import { buildEarth, prepareEarthGeo } from './earth.js';
@@ -11,7 +11,7 @@ import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './r
 import { eraShift } from './macro.js';
 import { nationProfile } from './bio.js';
 
-const STORE = 'awfully-long-earth:world-2000';
+const STORE = 'awfully-long-earth:plane-2000';
 // Big Earth is shown at a single moment, 2000 CE: the end of each sheet's
 // 1000-2000 CE tile. That millennium is still simulated, and becomes backstory.
 const LAYER = 1;
@@ -119,11 +119,11 @@ function draw() {
   const s = state.cam.scale, th = s / 2;
   const [l, t] = toTile(0, 0), [r, b] = toTile(vw, vh);
   const x0 = Math.floor(l), x1 = Math.ceil(r);
-  const y0 = Math.max(ROW_MIN, Math.floor(t)), y1 = Math.min(ROW_MAX, Math.ceil(b));
+  const y0 = Math.floor(t), y1 = Math.ceil(b);
   const labels = [];
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
-      const x = wrapX(tx);
+      const x = tx;
       const [sx, sy] = toScreen(tx, ty);
       const st = tileStateAt(state.world, x, ty, state.Y);
       if (st) {
@@ -160,13 +160,6 @@ function draw() {
     ctx.fillText(lb.text, lb.x, lb.y);
     ctx.textAlign = 'left';
   }
-  // poles
-  ctx.fillStyle = css('--fg-dim');
-  ctx.font = `500 12px ${css('--font-ui')}`;
-  const [, ny] = toScreen(0, ROW_MIN);
-  if (ny > 14) ctx.fillText('North pole of Big Earth', 12, ny - 8);
-  const [, sy2] = toScreen(0, ROW_MAX + 1);
-  if (sy2 < vh - 4) ctx.fillText('South pole of Big Earth', 12, sy2 + 16);
 }
 
 function polityLabels(x, y, st, sx, sy, s) {
@@ -195,15 +188,24 @@ const hatch = (() => {
   return c;
 })();
 
-function drawFog(x, y, sx, sy, s, th) {
-  const t = layerFor(x, y);
-  const ok = canGenerate(state.world, x, y, t);
+// the hatch for unrevealed sheets, rebuilt when the colour scheme changes
+let fogFill = null, fogKey = '';
+function fogPattern() {
+  const key = css('--fog') + css('--fog-line');
+  if (fogFill && fogKey === key) return fogFill;
   const g = hatch.getContext('2d');
   g.clearRect(0, 0, 8, 8);
   g.fillStyle = css('--fog'); g.fillRect(0, 0, 8, 8);
   g.strokeStyle = css('--fog-line'); g.lineWidth = 1;
   g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.stroke();
-  ctx.fillStyle = ctx.createPattern(hatch, 'repeat');
+  fogFill = ctx.createPattern(hatch, 'repeat'); fogKey = key;
+  return fogFill;
+}
+
+function drawFog(x, y, sx, sy, s, th) {
+  const t = layerFor(x, y);
+  const ok = canGenerate(state.world, x, y, t);
+  ctx.fillStyle = fogPattern();
   ctx.fillRect(sx, sy, s, th);
   if (ok && s > 60) {
     const cx = sx + s / 2, cy = sy + th / 2, r = Math.min(26, s / 10);
@@ -237,7 +239,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
     if (drag.moved) {
       state.cam.cx = drag.cx - dx / state.cam.scale;
-      state.cam.cy = clampCy(drag.cy - (2 * dy) / state.cam.scale);
+      state.cam.cy = drag.cy - (2 * dy) / state.cam.scale;
       $('tip').hidden = true;
       draw();
       return;
@@ -257,19 +259,17 @@ canvas.addEventListener('wheel', (e) => {
   zoomAt(e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
 }, { passive: false });
 
-function clampCy(cy) { return Math.max(ROW_MIN - 0.5, Math.min(ROW_MAX + 1.5, cy)); }
 function zoomAt(sx, sy, f) {
   const [tx, ty] = toTile(sx, sy);
-  state.cam.scale = Math.max(60, Math.min(4000, state.cam.scale * f));
+  state.cam.scale = Math.max(20, Math.min(4000, state.cam.scale * f));
   const [nx, ny] = toTile(sx, sy);
-  state.cam.cx += tx - nx; state.cam.cy = clampCy(state.cam.cy + ty - ny);
+  state.cam.cx += tx - nx; state.cam.cy += ty - ny;
   draw();
 }
 
 function cellAt(sx, sy) {
   const [tx, ty] = toTile(sx, sy);
-  const x = wrapX(Math.floor(tx)), y = Math.floor(ty);
-  if (y < ROW_MIN || y > ROW_MAX) return null;
+  const x = Math.floor(tx), y = Math.floor(ty);
   const i = Math.floor((tx - Math.floor(tx)) * W), j = Math.floor((ty - y) * H);
   return { x, y, i, j, k: j * W + i };
 }
@@ -353,7 +353,16 @@ for (const b of document.querySelectorAll('[data-mode]')) {
 $('zoomIn').addEventListener('click', () => zoomAt(vw / 2, vh / 2, 1.4));
 $('zoomOut').addEventListener('click', () => zoomAt(vw / 2, vh / 2, 1 / 1.4));
 $('home').addEventListener('click', () => { state.cam = { cx: 0.5, cy: 0.5, scale: defaultScale() }; state.sel = { x: 0, y: 0 }; draw(); renderPanel(); });
-$('whole').addEventListener('click', () => { state.cam = { cx: 0, cy: 0.5, scale: Math.min(vw / COLS, (2 * vh) / 10.5) }; draw(); });
+// fit every revealed sheet, plus a ring of unrevealed ones to reveal next
+$('whole').addEventListener('click', () => {
+  let x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+  for (const h of state.world.tiles.values()) {
+    x0 = Math.min(x0, h.x); x1 = Math.max(x1, h.x); y0 = Math.min(y0, h.y); y1 = Math.max(y1, h.y);
+  }
+  const w = x1 - x0 + 3, hgt = y1 - y0 + 3;
+  state.cam = { cx: (x0 + x1 + 1) / 2, cy: (y0 + y1 + 1) / 2, scale: Math.max(20, Math.min(vw / w, (2 * vh) / hgt)) };
+  draw();
+});
 
 function defaultScale() { return Math.max(160, Math.min(vw / 2.4, vh * 2 / 2.4)); }
 
@@ -371,12 +380,10 @@ function renderPanel() {
   if (st) chip = st.hist.fixed ? '<span class="chip real">Real Earth</span>' : '<span class="chip gen">Generated</span>';
 
   const extendBtn = (dx, dy, label, arrow) => {
-    let nx = x, ny = y + dy;
-    if (dx) nx = wrapX(x + dx);
-    const pole = ny < ROW_MIN || ny > ROW_MAX;
-    const exists = !pole && world.hasTile(nx, ny, t);
-    const ok = !pole && st && canGenerate(world, nx, ny, t);
-    const reason = pole ? 'Pole' : exists ? 'Go there' : ok ? 'Reveal' : 'Not adjacent';
+    const nx = x + dx, ny = y + dy;
+    const exists = world.hasTile(nx, ny, t);
+    const ok = st && canGenerate(world, nx, ny, t);
+    const reason = exists ? 'Go there' : ok ? 'Reveal' : 'Not adjacent';
     const attr = exists ? `data-go="${nx},${ny}"` : `data-ext="${nx},${ny}"`;
     return `<button class="ext ${exists ? 'go' : ''}" ${ok || exists ? '' : 'disabled'} ${attr} title="${esc(reason)}">
       <span class="arrow" aria-hidden="true">${arrow}</span><span>${label}</span><small>${esc(reason)}</small></button>`;

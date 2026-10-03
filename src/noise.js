@@ -1,15 +1,15 @@
-// Value noise on global cell coordinates, periodic in x so Big Earth wraps east-west.
+// Value noise on global cell coordinates; periodic in x when given a finite period.
 import { hash2 } from './rng.js';
 
 function lattice(seed, ix, iy, periodX) {
-  const x = ((ix % periodX) + periodX) % periodX;
+  const x = Number.isFinite(periodX) ? ((ix % periodX) + periodX) % periodX : ix;
   return hash2(hash2(seed, x), iy) / 4294967296;
 }
 
 const fade = (t) => t * t * (3 - 2 * t);
 
 // Smooth noise in [0,1]; `scale` is the lattice spacing in cells; `period` the
-// world circumference in cells (must be a multiple of scale).
+// world circumference in cells (a multiple of scale), or Infinity for none.
 export function valueNoise(seed, x, y, scale, period) {
   const px = Math.round(period / scale);
   const fx = x / scale, fy = y / scale;

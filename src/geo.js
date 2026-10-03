@@ -5,7 +5,7 @@
 // Real Earth (tile 0,0) comes from Natural Earth country outlines. Its neighbours'
 // noise terrain is corrected near the shared edge so coastlines run on across it.
 
-import { W, H, WORLD_W, ROW_MIN, wrapX, seaLevel, tempOffset } from './constants.js';
+import { W, H, WORLD_W, GX0, GY0, seaLevel, tempOffset } from './constants.js';
 import { fbm } from './noise.js';
 import { Rng, hashN } from './rng.js';
 import { EARTH_GEO } from './data/earth-geo.js';
@@ -22,7 +22,7 @@ const MIN_SEA = -0.055;   // lowest sea level ever (glacial maximum)
 const BLEND = 40;
 const LAND_BIAS = 0.1;  // tuned so tiles average roughly Earth's 30% land         // cells over which neighbours bend towards Earth's edge
 
-export const isEarthPos = (x, y) => wrapX(x) === 0 && y === 0;
+export const isEarthPos = (x, y) => x === 0 && y === 0;
 
 const lonOf = (i) => -180 + (i + 0.5) * (360 / W);
 const latOf = (j) => 90 - (j + 0.5) * (180 / H);
@@ -132,8 +132,8 @@ function bfsDistance(land) {
 
 // ---------------------------------------------------------- procedural terrain
 
-function gx(x, i) { return (wrapX(x) + 5) * W + i; }
-function gy(y, j) { return (y - ROW_MIN) * H + j; }
+function gx(x, i) { return (x - GX0) * W + i; }
+function gy(y, j) { return (y - GY0) * H + j; }
 
 function noiseElev(seed, X, Y) {
   const wx = X + 50 * fbm(seed + 11, X, Y, 150, WORLD_W, 3);
@@ -150,13 +150,15 @@ function noiseElev(seed, X, Y) {
 function noiseMoist(seed, X, Y) { return fbm(seed + 21, X, Y, 150, WORLD_W, 5); }
 function noiseTemp(seed, X, Y) { return fbm(seed + 31, X, Y, 300, WORLD_W, 3); }
 
-// Temperature (deg C, today) from local latitude band, Big-Earth row, elevation.
-function baseTemp(y, j, e) {
+// Temperature (deg C, today) from local latitude band and elevation.
+function baseTemp(j, e) {
   const lat = latOf(j);
-  const row = y - 0.5; // Big Earth's equator runs between rows 0 and 1
-  return 28 - 52 * Math.pow(Math.abs(lat) / 90, 1.4) - 9 * Math.pow(Math.abs(row) / 5, 2)
-    - 22 * Math.max(0, e - 0.12);
+  return 28 - 52 * Math.pow(Math.abs(lat) / 90, 1.4) - 22 * Math.max(0, e - 0.12);
 }
+
+// Big Earth has no poles, so instead of a global gradient there are broad warm
+// and cold regions a few sheets across.
+function regionalTemp(seed, X, Y) { return 5 * fbm(seed + 51, X, Y, 2 * W, WORLD_W, 2) - 2; }
 
 function baseMoist(j, coastDist, n) {
   const lat = Math.abs(latOf(j));
@@ -188,7 +190,6 @@ export function setGeoSeed(seed) {
 }
 
 export function getGeo(x, y) {
-  x = wrapX(x);
   const k = `${x},${y}`;
   let g = cache.get(k);
   if (!g) { g = buildGeo(x, y); cache.set(k, g); }
@@ -219,11 +220,11 @@ function buildGeo(x, y) {
     const X = gx(x, i), Y = gy(y, j);
     const coast = land[k] ? dist[k] : 0;
     if (earth) {
-      temp[k] = baseTemp(0, j, elev[k]) + 2 * Math.sin(lonOf(i) / 30); // a little east-west texture
+      temp[k] = baseTemp(j, elev[k]) + 2 * Math.sin(lonOf(i) / 30); // a little east-west texture
       const mo = earthData().moistOverride[k];
       moist[k] = mo >= 0 ? mo : baseMoist(j, coast, 0.15);
     } else {
-      temp[k] = baseTemp(y, j, elev[k]) + 4 * noiseTemp(seed, X, Y);
+      temp[k] = baseTemp(j, elev[k]) + regionalTemp(seed, X, Y) + 4 * noiseTemp(seed, X, Y);
       moist[k] = baseMoist(j, coast, noiseMoist(seed, X, Y));
       // a few big river valleys in dry lands
       if (elev[k] >= 0 && moist[k] < 0.45 && temp[k] > 8 && fbm(seed + 41, X, Y, 37.5, WORLD_W, 2) > 0.62) moist[k] = 2;
@@ -239,10 +240,10 @@ function buildGeo(x, y) {
 function blendTowardsEarth(x, y, elev, seed) {
   const E = earthData().elev;
   const sides = [];
-  if (y === 0 && wrapX(x - 1) === 0) sides.push('W'); // Earth lies to our west
-  if (y === 0 && wrapX(x + 1) === 0) sides.push('E');
-  if (wrapX(x) === 0 && y === 1) sides.push('N');
-  if (wrapX(x) === 0 && y === -1) sides.push('S');
+  if (y === 0 && x === 1) sides.push('W'); // Earth lies to our west
+  if (y === 0 && x === -1) sides.push('E');
+  if (x === 0 && y === 1) sides.push('N');
+  if (x === 0 && y === -1) sides.push('S');
   for (const side of sides) {
     const n = side === 'W' || side === 'E' ? H : W;
     const diff = new Float32Array(n);
@@ -503,9 +504,7 @@ export const DIRS = { E: [1, 0], W: [-1, 0], N: [0, -1], S: [0, 1] };
 
 export function neighbourPos(x, y, dir) {
   const [dx, dy] = DIRS[dir];
-  const ny = y + dy;
-  if (ny < ROW_MIN || ny > 5) return null;
-  return { x: wrapX(x + dx), y: ny };
+  return { x: x + dx, y: y + dy };
 }
 
 // Habitability-weighted size of a region at year Y (sea level and ice change).

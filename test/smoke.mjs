@@ -241,7 +241,22 @@ for (const t of [-1, -2, -3]) {
 // across Earth's eastern edge, land should mostly continue as land
 const e = getGeo(0, 0), east = getGeo(1, 0);
 console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
-assert.ok(neighbourPos(0, -4, 'N') === null, 'north pole has no neighbour');
+
+// Big Earth is an endless plane: no poles, no wrap, and far sheets generate
+{
+  assert.deepEqual(neighbourPos(0, -4, 'N'), { x: 0, y: -5 }, 'no north pole');
+  assert.deepEqual(neighbourPos(4, 0, 'E'), { x: 5, y: 0 }, 'no east-west wrap');
+  const far = new World(20000);
+  buildEarth(far);
+  for (let x = 1; x <= 12; x++) generateTile(far, x, 0, 1);   // a 12-sheet march east
+  for (let y = -1; y >= -6; y--) generateTile(far, 12, y, 1); // then north, past the old pole
+  const a = getGeo(5, 0), b = getGeo(-5, 0);
+  let same = 0;
+  for (let k = 0; k < a.elev.length; k++) if (a.elev[k] === b.elev[k]) same++;
+  assert.ok(same < a.elev.length / 2, 'sheets 10 apart are no longer the same sheet');
+  const shifts = [[12, -6], [40, 0], [0, 80], [-150, 30]].map(([x, y]) => eraShift(far.seed, x + 0.5, y + 0.5, 2000));
+  console.log(`endless plane: 18 far sheets generated; era shifts at 12/-6, 40/0, 0/80, -150/30 in 2000 CE: ${shifts.join(', ')}`);
+}
 
 // round trip
 const json = world.serialize();

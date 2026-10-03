@@ -17,7 +17,7 @@
 // with farmers and conquerors and split into daughters; technology climbs towards
 // an era ceiling, diffuses, and is knocked back by collapses and disasters.
 
-import { STEPS, STEPS_PER_SNAP, STEP_YEARS, tileStart, techCap, eraName, wrapX, ROW_MIN, ROW_MAX } from './constants.js';
+import { STEPS, STEPS_PER_SNAP, STEP_YEARS, tileStart, techCap, eraName, wrapX } from './constants.js';
 import { getGeo, edgeLinks, neighbourPos, regionCapacity, BIOME } from './geo.js';
 import { Rng, hashN } from './rng.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
@@ -105,7 +105,7 @@ const familyName = (c) => (c ? c.name.replace(/ \(.*\)$/, '').replace(/ & .*$/, 
 
 export function canGenerate(world, x, y, t) {
   x = wrapX(x);
-  if (y < ROW_MIN || y > ROW_MAX || t < T_MIN || t > T_MAX) return false;
+  if (t < T_MIN || t > T_MAX) return false;
   if (world.hasTile(x, y, t)) return false;
   if (world.hasTile(x, y, t - 1) || world.hasTile(x, y, t + 1)) return true;
   for (const d of ['E', 'W', 'N', 'S']) {

@@ -1,9 +1,8 @@
 // Shape of Big Earth and its timeline.
 //
-// Big Earth has 100x the surface area of Earth: a 10 x 10 grid of Earth-sized tiles.
-// Columns wrap east-west; rows run from the north pole (row -4) to the south pole
-// (row 5). Real Earth is tile (0, 0). Each tile is an equirectangular 240 x 120 grid
-// of 1.5-degree cells (in Earth's own frame), so Big Earth is 2400 x 1200 cells.
+// Big Earth is an endless plane of Earth-sized tiles (sheets), with no wrap and no
+// poles. Real Earth is tile (0, 0). Each tile is an equirectangular 240 x 120 grid
+// of 1.5-degree cells (in Earth's own frame).
 //
 // Time is cut into millennia: tile layer t spans years [1000t, 1000t + 1000]
 // (negative = BCE). Earth's own record covers t = 0 and t = 1 (1 CE - 2000 CE);
@@ -11,10 +10,12 @@
 
 export const W = 240;
 export const H = 120;
-export const COLS = 10;
-export const ROW_MIN = -4;
-export const ROW_MAX = 5;
-export const WORLD_W = W * COLS;
+// Origin of global cell coordinates, in sheets. Global coordinates are not
+// periodic (WORLD_W is infinite); the origin only keeps Terra's surroundings
+// identical to the old 10 x 10 globe's.
+export const GX0 = -5;
+export const GY0 = -4;
+export const WORLD_W = Infinity;
 
 export const SNAPS = 5;          // snapshots per tile: start, +250, +500, +750, end
 export const SNAP_YEARS = 250;
@@ -25,9 +26,8 @@ export const STEPS_PER_SNAP = SNAP_YEARS / STEP_YEARS;
 export const HISTORY_START = -20000;
 export const PRESENT = 2000;
 
-export function wrapX(x) {
-  return ((((x + 5) % COLS) + COLS) % COLS) - 5;
-}
+// Big Earth no longer wraps; kept so callers read the same.
+export function wrapX(x) { return x; }
 
 export function tileKey(x, y, t) { return `${wrapX(x)},${y},${t}`; }
 export function posKey(x, y) { return `${wrapX(x)},${y}`; }
