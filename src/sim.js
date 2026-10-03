@@ -149,7 +149,7 @@ class TileSim {
 
   // ------------------------------------------------------------ helpers
 
-  ev(Y, kind, text, pid = 0) { this.events.push({ y: Math.round(Y), kind, text, pid }); }
+  ev(Y, kind, text, pid = 0) { if (!this.warm) this.events.push({ y: Math.round(Y), kind, text, pid }); }
   rname(r) { return regionName(this.world, this.geo, r); }
   pol(id) { return this.world.polities.get(id); }
   pname(id, Y) { return this.world.polityName(id, Y); }
@@ -752,18 +752,34 @@ class TileSim {
         if (p && (p.ended == null || p.ended > Y) && this.cap(r, Y) >= 0.05 && rng.chance(0.35)) owner[r] = o;
       }
     }
-    const created = [];
+    this.spinUp(Y);
+  }
+
+  // A tile with no past should start the way a tile reached by simulating
+  // forwards would: run the full dynamics silently at this era for long enough
+  // to reach its typical state (unions and federations take many centuries to
+  // form, so high-tech eras spin up longer). Throwaway states and peoples from
+  // the spin-up are then forgotten.
+  spinUp(Y) {
+    const { world } = this;
+    const firstId = world.nextId;
+    const steps = Y >= 2000 ? 30 : Y >= 1500 ? 20 : 16;
     this.warm = true;
-    for (let i = 0; i < 8; i++) {
-      this.seedDestined(Y, true);
-      this.emergence(0, Y, created);
-      const mem = this.members();
-      this.expansion(0, Y, mem);
-    }
+    for (let i = 0; i < steps; i++) this.step(0, Y);
     this.warm = false;
-    for (const pid of created) {
-      const p = this.pol(pid);
-      if (!this.isDestined(pid)) p.founded = null; // "before the start of this millennium"
+    const alive = new Set(this.s.owner);
+    for (const [id, p] of world.polities) {
+      if (id < firstId) continue;
+      if (!alive.has(id) && !this.isDestined(id)) { world.polities.delete(id); continue; }
+      if (!this.isDestined(id)) { p.founded = null; p.ended = null; } // "before this millennium"
+    }
+    const keep = new Set();
+    for (const c of this.s.culture) {
+      for (let k = c; k && !keep.has(k); k = world.cultures.get(k)?.parent) keep.add(k);
+    }
+    for (const id of [...world.cultures.keys()]) {
+      if (id >= firstId && !keep.has(id)) world.cultures.delete(id);
+      else if (id >= firstId) world.cultures.get(id).origin = null;
     }
   }
 

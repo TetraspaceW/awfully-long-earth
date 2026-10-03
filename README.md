@@ -65,8 +65,12 @@ the tile is generated **in reverse**. Time runs backwards from the known future 
 
 Read forwards, the result is continuous.
 
-With no past or future face, a starting state is drawn from the era's
-distribution, shaped by whichever side faces are known, and simulated forwards.
+With no past or future face, the tile still has to start like one reached by
+simulating forwards. A rough starting state is drawn from the era's distribution,
+shaped by whichever side faces are known. The full dynamics then run silently at
+that era for 800–1500 years ("spin-up") before the tile begins. This lets
+federations and world states form in the far future, where they take centuries.
+States and peoples that existed only during spin-up are discarded.
 
 The simulation (`src/sim.js`) runs in 50-year steps, using deliberately Earth-like
 dynamics. States emerge where farming societies get complex enough. They expand by
