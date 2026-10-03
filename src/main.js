@@ -6,7 +6,7 @@ import { getGeo, BIOME_NAMES, cellBiome, neighbourPos } from './geo.js';
 import { World } from './world.js';
 import { buildEarth, prepareEarthGeo } from './earth.js';
 import { generateTile, canGenerate, regionName, T_MIN, T_MAX } from './sim.js';
-import { tileStateAt, players, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
+import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
 import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './render.js';
 import { eraShift } from './macro.js';
 import { nationProfile } from './bio.js';
@@ -315,20 +315,12 @@ function click(sx, sy) {
   const c = cellAt(sx, sy);
   if (!c) return;
   state.sel = { x: c.x, y: c.y };
-  const st = tileStateAt(state.world, c.x, c.y, state.Y);
-  if (!st) {
-    state.nation = 0;
+  // the map is for moving around and surveying; state profiles open from the lists
+  if (!tileStateAt(state.world, c.x, c.y, state.Y)) {
     const t = layerFor(c.x, c.y);
     if (canGenerate(state.world, c.x, c.y, t)) { survey(c.x, c.y, t); return; }
-  } else {
-    // tapping a state opens its profile; tapping sea or stateless land closes it
-    const geo = getGeo(c.x, c.y);
-    const r = geo.region[c.k];
-    const land = r >= 0 && cellBiome(geo, c.k, state.Y) !== 0;
-    state.nation = land ? st.snap.owner[r] || 0 : 0;
   }
   draw(); renderPanel();
-  if (state.nation) $('panel').scrollTop = 0;
 }
 
 function survey(x, y, t, quiet = false) {
@@ -481,7 +473,9 @@ function renderPanel() {
   for (const b of $('panel').querySelectorAll('[data-year]')) b.addEventListener('click', () => setYear(Number(b.dataset.year)));
   for (const b of $('panel').querySelectorAll('[data-nation]')) {
     b.addEventListener('click', () => { openNation(Number(b.dataset.nation)); });
+    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNation(Number(b.dataset.nation)); } });
   }
+  $('panel').querySelector('.allstates')?.addEventListener('toggle', (e) => { state.allOpen = e.target.open; });
   $('closeNation')?.addEventListener('click', () => { state.nation = 0; draw(); renderPanel(); });
   wireChart();
   $('ring')?.addEventListener('click', () => surveyRing(x, y, t));
@@ -513,7 +507,18 @@ function powersHere(x, y) {
       <span class="pn">${esc(p.name)}${p.bloc ? ` <em>bloc of ${p.members.length}</em>` : ''}${worldsTag(p)}</span>
       <span class="num">${fmtPop(p.pop)}</span><span class="num">${fmtMoney(p.gdp)}</span>
       <span class="bar"><i style="width:${Math.max(2, (100 * p.gdp) / max)}%"></i></span></li>`).join('')}</ol>
-    <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}</p></section>`;
+    <p class="fine">Population · economy (present-day dollars)${geoNote(x, y)}. Tap a state for its profile.</p>
+    ${allStatesHere(x, y)}</section>`;
+}
+
+// Every state holding land on this sheet, blocs broken out into their members.
+function allStatesHere(x, y) {
+  const agg = [...worldPowers(state.world, state.Y, new Set([`${x},${y}`])).values()].sort((a, b) => b.gdp - a.gdp);
+  if (agg.length <= 8) return '';
+  return `<details class="allstates" ${state.allOpen ? 'open' : ''}><summary>All ${agg.length} states on this sheet</summary>
+    <ol class="powers compact">${agg.map((a) => `
+      <li data-nation="${a.id}" class="pickable" tabindex="0" title="Open profile"><span class="sw" style="background:${polityCss(state.world, a.id)}"></span>
+        <span class="pn">${esc(state.world.polityName(a.id, state.Y))}</span><span class="num">${fmtPop(a.pop)}</span><span class="num">${a.regions} prov.</span></li>`).join('')}</ol></details>`;
 }
 
 function openNation(pid) {

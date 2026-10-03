@@ -38,7 +38,8 @@ npm run build-earth # re-rasterises Natural Earth country outlines (needs networ
 - **Panel**: the leading powers on the sheet and across all surveyed Big Earth
   (blocs like the EU are counted as one player), the peoples living there, and a
   chronicle of the millennium.
-- **Tap a state** on the map, or its name in a power list, to open its profile:
+- **Tap a state in a sheet's power list** (or under "All states on this sheet") to
+  open its profile:
   - how it is governed and who leads it;
   - what its technology lets it do, and its economy;
   - the peoples living in it;
