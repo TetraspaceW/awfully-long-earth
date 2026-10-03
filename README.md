@@ -145,34 +145,46 @@ varies somewhat during the fast 2000–3000 CE unification.
 Terra's record (the area of sheet 0,0 in 1–2000 CE) is the one fixed point. Every other tile is
 tied to it through chains of boundary conditions, and each link lets history
 wander a little. The macro layer therefore models history's drift from Terra's
-timeline as a **random walk anchored at Terra's record**. Its variance adds up
-with distance:
-- a little per sheet near the present, since Terra's neighbours share its world;
-- more per millennium along Terra's own column;
-- most for places far from Terra in both space and time.
+timeline as a smooth field **anchored at Terra's record**, with octaves 3 to 90
+sheets across. Its statistics are the same everywhere, so every world, not just
+Terra, has neighbours within a few centuries of it and far-off worlds thousands of
+years away. Away from 1–2000 CE the spread widens everywhere at once, and Terra's
+own past and future wander too.
 
 The main walk is an **era shift**: a place can run thousands of years ahead of or
-behind Terra's timeline. Distance is measured from Terra's actual area, so the
-shift grows smoothly outwards with no step at sheet edges. Its technology, institutions, nation-state era, colonial
+behind Terra's timeline. Its technology, institutions, nation-state era, colonial
 window and federations all follow its own effective year, while sea level and ice
 follow real time. Further walks make some far civilisations persistently unified
 or splintered, more or less dominated by states, and more boom-and-bust.
 
 As a result, Terra's neighbours in 2000 CE run within a few centuries of it. The
 drift keeps growing with distance: tens of sheets out, whole worlds run a millennium
-or more ahead or behind, and a hundred sheets out they can be thousands of years
+or more ahead or behind, and a hundred sheets out they can be up to about 8,000 years
 off, still in the Bronze Age or long past any world state Terra has seen. In
 roughly one world in four, though, somewhere far away in 3000 BCE is living in its
 own 2700 CE, complete with a world state. In 2000 CE the panel shows how far
 each sheet's development runs ahead of or behind Terra's.
+
+### Climate
+
+Big Earth has no single climate. Each place's climate state comes from a smooth
+field, built from octaves 3, 10, 30 and 90 sheets across and anchored so Terra has
+its real climate. The field has the same statistics everywhere: every world's
+neighbours are within a few degrees of it, and its far-off worlds can be anything
+from a Cryogenian snowball (ice to the equator, frozen seas) to a runaway Venusian
+greenhouse (boiled-off oceans, rock at 400 °C or more). The stages in between are
+ice ages, deep glaciation, warm and hothouse worlds, and moist greenhouses with
+scorched tropics and steaming seas. A world only tips into a runaway greenhouse
+through the broad-scale octaves, so it does so gradually over many sheets.
+Snowball and Venusian worlds are uninhabited. The panel names each sheet's
+climate, and the map tooltip gives each cell's temperature.
 
 ## Assumptions and liberties
 
 - **Geometry**: each sheet is an equirectangular Earth-sized map, and Big Earth is
   an endless flat plane of them. Climate bands repeat within every row of sheets, so
   Terra's Arctic and Antarctic sit against cold belts on the neighbouring sheets.
-  With no poles there is no global gradient. Instead, broad warm and cold regions a
-  few sheets across come and go. Terrain is noise tuned to Earth's roughly 30% land,
+  With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land,
   bent near Terra's edges so its coastlines continue. Physics, such as what holds an
   infinite plane together, is ignored.
 - **Earth's record (1–2000 CE)** is hand-authored at 250-year snapshots on

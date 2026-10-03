@@ -22,10 +22,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export function regionPos(x, y, reg) { return [x + (reg.cx + 0.5) / W, y + (reg.cy + 0.5) / H]; }
 export function sheetCentre(x, y) { return [x + 0.5, y + 0.5]; }
 
-// Smooth noise in [0,1] over space and time. Lattice every 2 sheets and
+// Smooth noise in [0,1] over space and time. Lattice every `scale` sheets and
 // `period` years. Big Earth is an endless plane, so nothing repeats.
-function field(seed, tag, gx, gy, Y, period) {
-  const fx = (gx - GX0) / 2, fy = (gy - GY0) / 2, fz = Y / period;
+function field(seed, tag, gx, gy, Y, period, scale = 2) {
+  const fx = (gx - GX0) / scale, fy = (gy - GY0) / scale, fz = Y / period;
   const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
   const tx = fade(fx - ix), ty = fade(fy - iy), tz = fade(fz - iz);
   const v = (a, b, c) => u01(seed, tag, a, b, c);
@@ -41,8 +41,12 @@ function field(seed, tag, gx, gy, Y, period) {
 // Terra's record (the area of sheet 0,0 in 1-2000 CE) is the one fixed point.
 // Everything else is joined to it through chains of boundary conditions, and each
 // link lets history wander a little, so the further a place is from that record
-// (in space and in millennia) the further its history can have drifted: a random
-// walk anchored at Terra, whose variance adds up with distance.
+// (in space and in millennia) the further its history can have drifted.
+//
+// The drift is a field with the same statistics everywhere, anchored at Terra:
+// octaves 3 to 90 sheets across, minus their value at Terra's own area. So every
+// world, not just Terra, has neighbours a few centuries off and far-off worlds
+// thousands of years off; Terra only fixes where the zero is.
 
 function terraDistance(gx, gy, Y) {
   const dx = Math.max(0, -gx, gx - 1), dy = Math.max(0, -gy, gy - 1);
@@ -66,9 +70,35 @@ function walk(seed, tag, gx, gy, Y) {
   return Math.sign(n) * Math.min(1.3, 1.6 * Math.abs(n) ** 0.8);
 }
 
-// Years this place runs ahead (+) or behind (-) Terra's timeline.
+const SHIFT_OCTAVES = [[3, 300], [10, 900], [30, 2000], [90, 4000]]; // [sheets, years]
+
+function shiftField(seed, gx, gy, Y) {
+  let s = 0;
+  for (const [sc, a] of SHIFT_OCTAVES) s += a * (2 * field(seed, 'shift' + sc, gx, gy, Y, 4000, sc) - 1);
+  return s;
+}
+
+// Years this place runs ahead (+) or behind (-) Terra's timeline. Away from
+// Terra's own millennia the spread widens everywhere at once (so it stays the
+// same from place to place), and Terra's own column wanders too.
+const shiftMemo = new Map();
 export function eraShift(seed, gx, gy, Y) {
-  return Math.round(driftYears(gx, gy, Y) * walk(seed, 'shift', gx, gy, Y));
+  const key = `${seed}|${gx}|${gy}|${Y}`;
+  let v = shiftMemo.get(key);
+  if (v === undefined) {
+    v = computeShift(seed, gx, gy, Y);
+    if (shiftMemo.size > 200000) shiftMemo.clear();
+    shiftMemo.set(key, v);
+  }
+  return v;
+}
+
+function computeShift(seed, gx, gy, Y) {
+  const { dt } = terraDistance(gx, gy, Y);
+  const tx = clamp(gx, 0, 1), ty = clamp(gy, 0, 1);
+  const space = (shiftField(seed, gx, gy, Y) - shiftField(seed, tx, ty, Y)) * (1 + 0.5 * dt);
+  const time = Math.sqrt(800000 * dt) * (2 * field(seed, 'shiftT', gx, gy, Y, 4000, 10) - 1) * 1.6;
+  return Math.round(space + time);
 }
 
 // The year whose technology and institutions this place is living through.
@@ -140,16 +170,22 @@ function coreAt(seed, cx, cy) {
   const key = `${seed}|${cx}|${cy}`;
   if (coreMemo.has(key)) return coreMemo.get(key);
   const u = (t) => u01(seed, 'core', cx, cy, t);
-  const c = u('p') < CORE_P ? {
-    i: `${cx}:${cy}`,
-    gx: cx + u('x'),
-    gy: cy + u('y'),
-    J: FED_ERA + 3500 * u('J') ** 1.3,           // founding, in local effective years
-    grow: 600 + 1800 * u('g'),                   // years to reach full extent
-    span: 1500 + 5000 * u('D'),                  // how long it lasts
-    R: 0.5 + 2.8 * u('R') ** 0.8,                // full radius in sheet widths
-    w: 0.7 + 0.6 * u('w'),                       // pull where domains overlap
-  } : null;
+  let c = null;
+  if (u('p') < CORE_P) {
+    const R = 0.5 + 2.8 * u('R') ** 0.8;         // full radius in sheet widths
+    // the frontier advances at most about a sheet every 500 years
+    const grow = R * (800 + 600 * u('g'));       // years to reach full extent
+    c = {
+      i: `${cx}:${cy}`,
+      gx: cx + u('x'),
+      gy: cy + u('y'),
+      J: FED_ERA + 3500 * u('J') ** 1.3,         // founding, in local effective years
+      grow,
+      span: grow + 1000 + 4000 * u('D'),         // how long it lasts
+      R,
+      w: 0.7 + 0.6 * u('w'),                     // pull where domains overlap
+    };
+  }
   if (coreMemo.size > 20000) coreMemo.clear();
   coreMemo.set(key, c);
   return c;

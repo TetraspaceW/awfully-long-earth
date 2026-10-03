@@ -6,17 +6,18 @@
 // noise terrain is corrected near the shared edge so coastlines run on across it.
 
 import { W, H, WORLD_W, GX0, GY0, seaLevel, tempOffset } from './constants.js';
-import { fbm } from './noise.js';
+import { fbm, valueNoise } from './noise.js';
 import { Rng, hashN } from './rng.js';
 import { EARTH_GEO } from './data/earth-geo.js';
 
 export const BIOME = {
   OCEAN: 0, ICE: 1, TUNDRA: 2, TAIGA: 3, MOUNTAIN: 4, DESERT: 5, STEPPE: 6,
-  TEMPERATE: 7, SAVANNA: 8, TROPICAL: 9, FERTILE: 10,
+  TEMPERATE: 7, SAVANNA: 8, TROPICAL: 9, FERTILE: 10, HOTHOUSE: 11, SCORCHED: 12,
 };
 export const BIOME_NAMES = ['Ocean', 'Ice', 'Tundra', 'Taiga', 'Mountains', 'Desert', 'Steppe',
-  'Temperate forest', 'Savanna', 'Tropical forest', 'River valley'];
-export const HAB = [0, 0, 0.04, 0.15, 0.25, 0.04, 0.45, 1.0, 0.6, 0.55, 1.3];
+  'Temperate forest', 'Savanna', 'Tropical forest', 'River valley', 'Hothouse swamp', 'Scorched rock'];
+export const HAB = [0, 0, 0.04, 0.15, 0.25, 0.04, 0.45, 1.0, 0.6, 0.55, 1.3, 0.1, 0];
+const NB = BIOME_NAMES.length;
 
 const MIN_SEA = -0.055;   // lowest sea level ever (glacial maximum)
 const BLEND = 40;
@@ -156,9 +157,64 @@ function baseTemp(j, e) {
   return 28 - 52 * Math.pow(Math.abs(lat) / 90, 1.4) - 22 * Math.max(0, e - 0.12);
 }
 
-// Big Earth has no poles, so instead of a global gradient there are broad warm
-// and cold regions a few sheets across.
-function regionalTemp(seed, X, Y) { return 5 * fbm(seed + 51, X, Y, 2 * W, WORLD_W, 2) - 2; }
+// ---------------------------------------------------------------- climate
+//
+// Big Earth has no poles and no single climate. A smooth field of octaves 3 to
+// 90 sheets across sets each place's climate state, anchored at Terra's present
+// one. Neighbouring sheets differ by a few degrees; far away the field wanders
+// from Cryogenian snowball (ice to the equator, frozen seas) to a runaway
+// Venusian greenhouse (boiled-off oceans, rock hot enough to melt lead).
+
+const CLIMATE_OCTAVES = [[3, 0.5], [10, 0.9], [30, 1.3], [90, 1.8]]; // [sheets, weight]
+const TERRA_X = -GX0 * W + W / 2, TERRA_Y = -GY0 * H + H / 2;
+
+// [all octaves, the two broadest only]
+function climateRaw(seed, X, Y) {
+  let s = 0, broad = 0;
+  // y counts double: a sheet is half as many cells tall as it is wide
+  for (const [sc, a] of CLIMATE_OCTAVES) {
+    const v = a * (valueNoise(seed + 61 + sc, X, 2 * Y, sc * W, WORLD_W) * 2 - 1);
+    s += v;
+    if (sc >= 30) broad += v;
+  }
+  return [s, broad];
+}
+
+// Climate drivers at global cell (X, Y), both 0 at Terra: z is about +-1 ten
+// sheets out and +-2 to 3.5 a hundred out; zb is its broad-scale part.
+let anchor = { seed: null, v: null };
+function climateZ(seed, X, Y) {
+  if (anchor.seed !== seed) anchor = { seed, v: climateRaw(seed, TERRA_X, TERRA_Y) };
+  const [s, b] = climateRaw(seed, X, Y), [s0, b0] = anchor.v;
+  return [s - s0, b - b0];
+}
+
+// Mean warming (deg C): ice ages and snowballs below zero, hothouses above. The
+// runaway greenhouse follows only the broad-scale driver, so a world tips into
+// it over many sheets instead of flickering in and out of it.
+export function climateShift([z, zb]) {
+  const base = z < 0 ? Math.max(-80, 12 * z - 6 * z * z) : 11 * z + 3 * z * z;
+  return base + 440 * smooth(clamp01((zb - 1.4) / 1.8));
+}
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const smooth = (t) => t * t * (3 - 2 * t);
+
+export function climateName(dT) {
+  if (dT < -35) return 'Snowball (Cryogenian)';
+  if (dT < -18) return 'Deep glaciation';
+  if (dT < -7) return 'Ice age';
+  if (dT < 6) return 'Earthlike';
+  if (dT < 16) return 'Warm';
+  if (dT < 30) return 'Hothouse';
+  if (dT < 120) return 'Moist greenhouse';
+  return 'Runaway greenhouse (Venusian)';
+}
+
+// Climate at a continuous position in sheet units, for the panel.
+export function climateAt(gxs, gys) {
+  const seed = hashN(worldSeed, 'terrain');
+  return climateShift(climateZ(seed, (gxs - GX0) * W, (gys - GY0) * H));
+}
 
 function baseMoist(j, coastDist, n) {
   const lat = Math.abs(latOf(j));
@@ -169,6 +225,8 @@ function baseMoist(j, coastDist, n) {
 export function classify(e, T, M, sl) {
   if (e < sl) return BIOME.OCEAN;
   if (T < -9) return BIOME.ICE;
+  if (T > 48) return BIOME.SCORCHED;
+  if (T > 34) return BIOME.HOTHOUSE;
   if (e > 0.45) return BIOME.MOUNTAIN;
   if (T < -2) return BIOME.TUNDRA;
   if (M > 1.5) return BIOME.FERTILE;
@@ -224,7 +282,7 @@ function buildGeo(x, y) {
       const mo = earthData().moistOverride[k];
       moist[k] = mo >= 0 ? mo : baseMoist(j, coast, 0.15);
     } else {
-      temp[k] = baseTemp(j, elev[k]) + regionalTemp(seed, X, Y) + 4 * noiseTemp(seed, X, Y);
+      temp[k] = baseTemp(j, elev[k]) + climateShift(climateZ(seed, X, Y)) + 4 * noiseTemp(seed, X, Y);
       moist[k] = baseMoist(j, coast, noiseMoist(seed, X, Y));
       // a few big river valleys in dry lands
       if (elev[k] >= 0 && moist[k] < 0.45 && temp[k] > 8 && fbm(seed + 41, X, Y, 37.5, WORLD_W, 2) > 0.62) moist[k] = 2;
@@ -358,7 +416,7 @@ function buildRegions(geo) {
   // per-region statistics
   for (const r of regions) Object.assign(r, {
     cells: 0, cellsNow: 0, cx: 0, cy: 0, habNow: 0, habGlacial: 0, coastal: false,
-    biomes: new Float32Array(11), adj: new Set(), sea: new Map(),
+    biomes: new Float32Array(NB), adj: new Set(), sea: new Map(),
   });
   for (let k = 0; k < W * H; k++) {
     const id = region[k];
@@ -380,7 +438,7 @@ function buildRegions(geo) {
   for (const r of regions) {
     r.cx /= Math.max(1, r.cells); r.cy /= Math.max(1, r.cells);
     let best = 0;
-    for (let b = 1; b < 11; b++) if (r.biomes[b] > r.biomes[best]) best = b;
+    for (let b = 1; b < NB; b++) if (r.biomes[b] > r.biomes[best]) best = b;
     r.biome = r.cellsNow ? best : BIOME.OCEAN;
     r.steppe = r.cellsNow ? (r.biomes[BIOME.STEPPE] + r.biomes[BIOME.DESERT] * 0.5) / r.cellsNow : 0;
     r.adj = [...r.adj];
@@ -516,6 +574,16 @@ export function regionCapacity(r, Y) {
 }
 
 // Biome of one cell at year Y (for rendering).
+// Surface temperature of a cell (deg C) at year Y.
+export function cellTemp(geo, k, Y) { return geo.temp[k] + tempOffset(Y); }
+
+// What the sea is doing at an ocean cell: frozen over, open water, steaming, or
+// boiled away to bare seabed.
+export function seaState(geo, k, Y) {
+  const T = cellTemp(geo, k, Y);
+  return T < -12 ? 'ice' : T > 110 ? 'dry' : T > 60 ? 'steam' : 'water';
+}
+
 export function cellBiome(geo, k, Y) {
   const off = tempOffset(Y);
   const m = off < 0 ? geo.moist[k] * (1 + off / 40) : geo.moist[k];

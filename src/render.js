@@ -1,12 +1,13 @@
 // Turns a tile's state at one snapshot into a 240 x 120 image for one map mode.
 
 import { W, H } from './constants.js';
-import { getGeo, cellBiome, BIOME, HAB } from './geo.js';
+import { getGeo, cellBiome, cellTemp, seaState, BIOME, HAB } from './geo.js';
 import { density } from './stats.js';
 
 const BIOME_RGB = [
   [27, 52, 78], [232, 238, 240], [160, 163, 140], [78, 105, 78], [136, 125, 112], [214, 192, 140],
-  [184, 180, 112], [108, 150, 84], [181, 164, 82], [62, 122, 62], [128, 174, 92],
+  [184, 180, 112], [108, 150, 84], [181, 164, 82], [62, 122, 62], [128, 174, 92], [92, 112, 70],
+  [150, 98, 66],
 ];
 
 export function hsl(h, s, l) {
@@ -71,10 +72,20 @@ export function renderTile(world, x, y, snap, Y, mode, focus = 0) {
       let rgb = BIOME_RGB[b];
       if (b === BIOME.OCEAN) {
         const depth = Math.min(1, -geo.elev[k] / 0.4);
-        rgb = mix([52, 92, 120], [20, 38, 60], depth);
+        const sea = seaState(geo, k, Y);
+        const T = cellTemp(geo, k, Y);
+        if (sea === 'dry') rgb = mix([128, 84, 62], [84, 50, 40], depth);
+        else {
+          rgb = mix([52, 92, 120], [20, 38, 60], depth);
+          // pack ice thickens poleward of the freezing line; steam rises off hot seas
+          if (T < -6) rgb = mix(rgb, mix([214, 226, 234], [176, 196, 212], depth), Math.min(1, (-6 - T) / 8));
+          if (sea === 'steam') rgb = mix(rgb, [150, 146, 130], Math.min(1, (T - 60) / 50));
+        }
       } else {
         const shade = 1 + Math.min(0.25, geo.elev[k] * 0.3);
         rgb = rgb.map((v) => v * shade);
+        // scorched rock darkens and reddens as it heats towards Venus
+        if (b === BIOME.SCORCHED) rgb = mix(rgb, [96, 40, 30], Math.min(1, (cellTemp(geo, k, Y) - 48) / 350));
         const r = region[k];
         if (r >= 0 && snap && mode !== 'terrain') {
           if (mode === 'political') {

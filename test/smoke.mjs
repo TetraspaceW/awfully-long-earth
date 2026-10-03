@@ -157,14 +157,22 @@ for (const t of [-1, -2, -3]) {
   assert.ok(Math.max(...c) < 0.12, 'gap tile replaces too many peoples');
 }
 
-// drift from Terra: tiny next to Terra's record, large far away in space and time
+// drift from Terra: tiny next to Terra's record, large far away in space and time,
+// and small between any two neighbours
 {
   let near = 0, farDeep = 0;
   for (let sd = 1; sd <= 40; sd++) {
     for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) near = Math.max(near, Math.abs(eraShift(sd, x + 0.5, y + 0.5, 2000)));
-    for (let y = -4; y <= 5; y++) for (let x = -5; x <= 4; x++) if (techCap(effectiveYear(sd, x + 0.5, y + 0.5, -2500)) >= 10) farDeep++;
+    for (let y = -60; y <= 60; y += 6) for (let x = -60; x <= 60; x += 6) if (techCap(effectiveYear(sd, x + 0.5, y + 0.5, -2500)) >= 10) farDeep++;
   }
-  console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; world-state-level sheets in 2500 BCE across 40 seeds: ${farDeep}`);
+  // every world's neighbours stay close, wherever it is, not just Terra's
+  let step = 0;
+  for (let sd = 1; sd <= 10; sd++) for (let i = 0; i < 60; i++) {
+    const x = ((i * 7919) % 400) - 200 + 0.5, y = ((i * 104729) % 400) - 200 + 0.5;
+    step = Math.max(step, Math.abs(eraShift(sd, x + 1, y, 2000) - eraShift(sd, x, y, 2000)), Math.abs(eraShift(sd, x, y + 1, 2000) - eraShift(sd, x, y, 2000)));
+  }
+  console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; largest step between neighbours anywhere ${step} years; world-state-level sheets in 2500 BCE (sampled to 60 sheets out, 40 seeds): ${farDeep}`);
+  assert.ok(step <= 600, 'far-off worlds differ wildly from their own neighbours');
   assert.ok(near <= 500, 'Terra\'s present-day neighbours drift too far');
   assert.ok(farDeep >= 1, 'far reaches never get strange enough');
 }

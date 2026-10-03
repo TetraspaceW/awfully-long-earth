@@ -2,7 +2,7 @@
 // selected sheet. Click a "+" sheet to reveal (generate) it.
 
 import { W, H, tileKey, formatYear, eraName } from './constants.js';
-import { getGeo, BIOME_NAMES, cellBiome, neighbourPos } from './geo.js';
+import { getGeo, BIOME_NAMES, cellBiome, cellTemp, seaState, climateAt, climateName, neighbourPos } from './geo.js';
 import { World } from './world.js';
 import { buildEarth, prepareEarthGeo } from './earth.js';
 import { generateTile, canGenerate, regionName } from './sim.js';
@@ -11,7 +11,7 @@ import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './r
 import { eraShift } from './macro.js';
 import { nationProfile } from './bio.js';
 
-const STORE = 'awfully-long-earth:plane-2000';
+const STORE = 'awfully-long-earth:climate-2000';
 // Big Earth is shown at a single moment, 2000 CE: the end of each sheet's
 // 1000-2000 CE tile. That millennium is still simulated, and becomes backstory.
 const LAYER = 1;
@@ -289,8 +289,10 @@ function hover(sx, sy) {
   } else {
     const r = geo.region[c.k];
     const biome = BIOME_NAMES[cellBiome(geo, c.k, state.Y)];
+    const deg = `${Math.round(cellTemp(geo, c.k, state.Y))} °C`;
     if (r < 0 || biome === 'Ocean') {
-      html = `<b>Ocean</b><span>${esc(state.world.tileName(c.x, c.y))}</span>`;
+      const sea = { ice: 'Frozen ocean', water: 'Ocean', steam: 'Steaming ocean', dry: 'Boiled-off seabed' }[seaState(geo, c.k, state.Y)];
+      html = `<b>${sea}</b><span>${esc(state.world.tileName(c.x, c.y))} · ${deg}</span>`;
     } else {
       const reg = geo.regions[r];
       const o = st.snap.owner[r], cu = st.snap.culture[r], tech = st.snap.tech[r];
@@ -298,7 +300,7 @@ function hover(sx, sy) {
       html = `<b>${esc(regionName(state.world, geo, r))}</b>
         <span>${o ? `<i class="sw" style="background:${polityCss(state.world, o)}"></i>${esc(state.world.polityName(o, state.Y))}` : 'No state'}</span>
         <span>${cu ? `<i class="sw" style="background:${cultureCss(state.world, cu)}"></i>${esc(state.world.cultureName(cu))}` : 'Uninhabited'}</span>
-        <span>${esc(biome)} · ${cu ? esc(eraName(tech)) : '—'}${cu ? ` · ${fmtPop(pop)} people` : ''}</span>`;
+        <span>${esc(biome)} · ${deg} · ${cu ? esc(eraName(tech)) : '—'}${cu ? ` · ${fmtPop(pop)} people` : ''}</span>`;
     }
   }
   tip.innerHTML = html;
@@ -393,6 +395,7 @@ function renderPanel() {
     <div class="sheet-id">Sheet ${x >= 0 ? '+' : ''}${x} / ${y >= 0 ? '+' : ''}${y}</div>
     <h2>${esc(world.tileName(x, y))}</h2>
     <div class="meta">${chip}<span>2000 CE</span></div>
+    ${climateNote(x, y)}
     ${driftNote(x, y)}
   </header>
   <section>
@@ -512,6 +515,14 @@ function nationCard(pid) {
       <li class="ev k-${e.kind}"><span class="yr">${esc(formatYear(e.y))}</span><span class="kind">${esc(e.where)}</span><p>${esc(e.text)}</p></li>`).join('')}</ol>` : ''}
     ${b.successors.length ? `<p class="prose">Successors: ${b.successors.map(link).join(', ')}.</p>` : ''}
   </section>`;
+}
+
+// This sheet's climate state, against Terra's.
+function climateNote(x, y) {
+  const dT = climateAt(x + 0.5, y + 0.5);
+  const d = Math.round(dT);
+  const rel = Math.abs(d) < 1 ? 'about as warm as Terra' : `${Math.abs(d)} °C ${d > 0 ? 'warmer' : 'colder'} than Terra`;
+  return `<p class="climate"><b>${esc(climateName(dT))}</b> climate, ${rel}.</p>`;
 }
 
 // How far this sheet's development has drifted from Terra's.
