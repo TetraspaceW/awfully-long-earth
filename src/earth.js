@@ -36,6 +36,16 @@ const GEO_NAMES = {
   'FRA-GF': 'French Guiana', USA: 'the United States',
 };
 
+// present-day monarchies; everything else counts as a republic today
+const MONARCHIES = new Set('GBR ESP SWE NOR DNK NLD BEL LUX JPN THA SAU MAR JOR KHM OMN BRN BTN KWT QAT ARE BHR LSO SWZ MYS TON'.split(' '));
+
+export function fullName(n) {
+  if (n === 'Dem. Rep. Congo') return 'DR Congo';
+  return n.replace('Herz.', 'Herzegovina').replace(/\bRep\./, 'Republic').replace(/\bIs\./, 'Islands')
+    .replace(/\bEq\./, 'Equatorial').replace(/\bDem\./, 'Democratic').replace(/^S\. /, 'South ').replace(/^N\. /, 'North ')
+    .replace(/^W\. /, 'Western ').replace(/^Fr\. /, 'French ').replace(/^Central African Rep$/, 'Central African Republic');
+}
+
 export function earthRegionName(r) {
   if (GEO_NAMES[r.code]) return GEO_NAMES[r.code];
   const c = countryOf(r.country || r.code);
@@ -47,9 +57,7 @@ export function earthRegionName(r) {
   if (r.code === 'RUS-NW') return 'Russia (European)';
   if (r.code === 'IDN-W') return 'Sumatra';
   if (suf === 'GF') return 'French Guiana';
-  const full = (n) => n.replace('Herz.', 'Herzegovina').replace(/\bRep\./, 'Republic').replace(/\bIs\./, 'Islands')
-    .replace(/\bEq\./, 'Equatorial').replace(/\bDem\./, 'Democratic').replace(/^S\. /, 'South ').replace(/^N\. /, 'North ')
-    .replace(/^W\. /, 'Western ').replace(/^Fr\. /, 'French ');
+  const full = fullName;
   return suf ? `${c ? full(c.name) : r.code} (${part[suf] || suf})` : (c ? full(c.name) : r.code);
 }
 
@@ -99,12 +107,12 @@ export function buildEarth(world, warn = () => {}) {
   for (const sov of sovereigns) {
     if (sov === 'ATA') continue;
     const def = EARTH_POLITIES[`c:${sov}`];
-    const name = sovName.get(sov) || sov;
+    const name = fullName(sovName.get(sov) || sov);
     const capCode = def ? def[5] : [...byCode.keys()].find((k) => k.split('-')[0] === sov);
     const capRegion = byCode.get(capCode) || geo.regions.find((r) => countryOf(r.country)?.sov === sov);
     world.addPolity({
       key: `c:${sov}`, name, adj: name, culture: world.byKey(`e:${def ? def[1] : modernCultureOf(sov, byCode)}`) || 0,
-      type: def ? def[2] : 'republic', founded: def ? def[3] : null, ended: null,
+      type: MONARCHIES.has(sov) ? 'kingdom' : 'republic', founded: def ? def[3] : null, ended: null,
       capital: { x: 0, y: 0, r: capRegion ? capRegion.id : 0 }, home: '0,0', earth: true,
       color: colorFor(`c:${sov}`), agg: 1,
     });

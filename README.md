@@ -53,8 +53,20 @@ tile reads these faces:
 | Future (one millennium later) | Our end state is its start state, exactly. States that must exist then are founded on the way (at their recorded founding date when one is known), peoples that must have spread do spread, and technology converges on it. |
 | East, west, north, south (same millennium) | Technology and peoples diffuse across the edge, and neighbouring states push in. A state can straddle sheets. |
 
-With no past face, a starting state is drawn from the era's distribution, shaped
-by whichever faces are known.
+When only the future face is known (the usual case when exploring backwards),
+the tile is generated **in reverse**. Time runs backwards from the known future in
+50-year steps, undoing what history does going forwards:
+- states shrink back towards their founding dates and vanish at them;
+- conquered predecessors and collapsed empires reappear;
+- languages recede from their margins, and daughter languages fold back into
+  their parents;
+- technology drifts back towards its era's typical level, with the occasional
+  dark age undone.
+
+Read forwards, the result is continuous.
+
+With no past or future face, a starting state is drawn from the era's
+distribution, shaped by whichever side faces are known, and simulated forwards.
 
 The simulation (`src/sim.js`) runs in 50-year steps, using deliberately Earth-like
 dynamics. States emerge where farming societies get complex enough. They expand by
@@ -84,7 +96,9 @@ real 2000 figures, so other sheets' powers are comparable to the US, EU and Chin
   domain); the "2000 CE" snapshot uses those present-day figures.
 - **Earth before 1 CE** is generated, constrained only by needing to arrive at the
   real world of 1 CE (Rome, Han, Parthia and the rest are founded at their real dates).
-- **After 2000 CE** tiles are speculative and marked as such.
+- **After 2000 CE** tiles are speculative and marked as such. Wars resume at a low
+  rate, independence movements succeed, constitutions change, kin states unite and
+  blocs such as the EU may federate.
 - Earth's own polities can push a little way into neighbouring sheets. In this
   world, Terra's history looks the same from inside, and Terra is one regional
   system among many.

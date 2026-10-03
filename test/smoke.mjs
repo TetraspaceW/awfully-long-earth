@@ -58,6 +58,24 @@ for (const h of world.tiles.values()) {
   }
 }
 
+// generating backwards must not pile all change into a tile's last 250 years
+const churn = (a, b) => {
+  let n = 0, c = 0;
+  for (let i = 0; i < a.owner.length; i++) if (a.culture[i] || b.culture[i]) { n++; if (a.owner[i] !== b.owner[i]) c++; }
+  return c / Math.max(1, n);
+};
+for (const t of [-1, -2, -3]) {
+  const s = world.tile(0, 0, t).snaps;
+  const inner = (churn(s[0], s[1]) + churn(s[1], s[2]) + churn(s[2], s[3])) / 3;
+  const last = churn(s[3], s[4]);
+  assert.ok(last < inner * 2 + 0.1, `backward tile ${t}: last-interval churn ${last.toFixed(2)} vs ${inner.toFixed(2)}`);
+}
+// the speculative future should not freeze
+{
+  const s = world.tile(0, 0, 2).snaps;
+  assert.ok(churn(s[0], s[4]) > 0.1, `Terra's future barely changes (${churn(s[0], s[4]).toFixed(2)})`);
+}
+
 // across Earth's eastern edge, land should mostly continue as land
 const e = getGeo(0, 0), east = getGeo(1, 0);
 console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);

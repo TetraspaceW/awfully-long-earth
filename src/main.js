@@ -326,7 +326,8 @@ function survey(x, y, t, quiet = false) {
   imgCache.clear(); clearColorCache();
   if (!quiet) {
     state.sel = { x, y };
-    if (Math.floor(state.Y / 1000) !== t && !(state.Y === (t + 1) * 1000)) state.Y = t * 1000 + 1000;
+    // show the new millennium: jump into its middle unless we're already inside it
+    if (Math.floor(state.Y / 1000) !== t || state.Y % 1000 === 0) state.Y = t * 1000 + 500;
     toast(`Surveyed ${state.world.tileName(x, y)}, ${formatRange(t)}`);
     syncTime(); draw(); renderPanel();
   }
@@ -411,8 +412,9 @@ function renderPanel() {
     const tt = t + dt;
     const exists = !pole && world.hasTile(nx, ny, tt);
     const ok = !pole && canGenerate(world, nx, ny, tt) && (dt !== 0 || st);
-    const reason = pole ? 'Pole' : exists ? 'Surveyed' : ok ? formatRange(tt) : 'Not adjacent';
-    return `<button class="ext" ${ok ? '' : 'disabled'} data-ext="${nx},${ny},${tt}" title="${esc(reason)}">
+    const reason = pole ? 'Pole' : exists ? `Go to ${formatRange(tt)}` : ok ? `Survey ${formatRange(tt)}` : 'Not adjacent';
+    const attr = exists ? `data-go="${nx},${ny},${tt}"` : `data-ext="${nx},${ny},${tt}"`;
+    return `<button class="ext ${exists ? 'go' : ''}" ${ok || exists ? '' : 'disabled'} ${attr} title="${esc(reason)}">
       <span class="arrow" aria-hidden="true">${arrow}</span><span>${label}</span><small>${esc(reason)}</small></button>`;
   };
 
@@ -453,6 +455,14 @@ function renderPanel() {
     b.addEventListener('click', () => {
       const [nx, ny, nt] = b.dataset.ext.split(',').map(Number);
       survey(nx, ny, nt);
+    });
+  }
+  for (const b of $('panel').querySelectorAll('[data-go]')) {
+    b.addEventListener('click', () => {
+      const [nx, ny, nt] = b.dataset.go.split(',').map(Number);
+      state.sel = { x: nx, y: ny };
+      if (Math.floor(state.Y / 1000) !== nt || state.Y % 1000 === 0) state.Y = nt * 1000 + 500;
+      syncTime(); draw(); renderPanel();
     });
   }
   for (const b of $('panel').querySelectorAll('[data-year]')) b.addEventListener('click', () => setYear(Number(b.dataset.year)));
