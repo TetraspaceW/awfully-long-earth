@@ -23,7 +23,7 @@ import { Rng, hashN } from './rng.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
 import { regionPower } from './stats.js';
 import { cloneSnap } from './world.js';
-import { development, targetStateShare, targetStateCount, federationAt, federationPolity, federationWorlds, effectiveYear, regionPos, sheetCentre } from './macro.js';
+import { humanPresence, development, targetStateShare, targetStateCount, federationAt, federationPolity, federationWorlds, effectiveYear, regionPos, sheetCentre } from './macro.js';
 
 const DIR_NAME = { E: 'east', W: 'west', N: 'north', S: 'south' };
 // backward generation drifts technology towards this share of the era ceiling,
@@ -174,7 +174,7 @@ class TileSim {
   cname(id) { return this.world.cultureName(id); }
   isHome(pid) { const p = this.pol(pid); return p && p.capital && p.capital.x === this.x && p.capital.y === this.y; }
 
-  cap(r, Y) { return regionCapacity(this.R[r], Y); }
+  cap(r, Y) { return regionCapacity(this.R[r], Y) * humanPresence(this.Er(r, Y)); }
   habFactor(r, Y) {
     const reg = this.R[r];
     const m = reg.cellsNow ? this.cap(r, Y) / Math.max(1, reg.cells) : 0;

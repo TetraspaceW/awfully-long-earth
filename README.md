@@ -142,28 +142,34 @@ varies somewhat during the fast 2000–3000 CE unification.
 
 ### Drift from Terra
 
-Terra's record (the area of sheet 0,0 in 1–2000 CE) is the one fixed point. Every other tile is
-tied to it through chains of boundary conditions, and each link lets history
-wander a little. The macro layer therefore models history's drift from Terra's
-timeline as a smooth field **anchored at Terra's record**, with octaves 3 to 90
-sheets across. Its statistics are the same everywhere, so every world, not just
-Terra, has neighbours within a few centuries of it and far-off worlds thousands of
-years away. Away from 1–2000 CE the spread widens everywhere at once, and Terra's
-own past and future wander too.
+Terra's record (the area of sheet 0,0 in 1–2000 CE) is the one fixed point. Every
+other world has a **point of divergence**: how long ago its history parted from
+Terra's. A world runs half that ahead of or behind Terra's timeline. Its technology,
+institutions, nation-state era, colonial window and federations all follow its own
+effective year, while sea level and ice follow real time.
 
-The main walk is an **era shift**: a place can run thousands of years ahead of or
-behind Terra's timeline. Its technology, institutions, nation-state era, colonial
-window and federations all follow its own effective year, while sea level and ice
-follow real time. Further walks make some far civilisations persistently unified
-or splintered, more or less dominated by states, and more boom-and-bust.
+Between neighbouring worlds the point of divergence swings by at most about
+max(1,000 years, 20% of itself) (`POD_SWING` in `src/macro.js`). Near Terra it grows
+by up to a millennium a sheet. Once it passes 5,000 years it grows geometrically, so
+the difference is arbitrary far enough out:
 
-As a result, Terra's neighbours in 2000 CE run within a few centuries of it. The
-drift keeps growing with distance: tens of sheets out, whole worlds run a millennium
-or more ahead or behind, and a hundred sheets out they can be up to about 8,000 years
-off, still in the Bronze Age or long past any world state Terra has seen. In
-roughly one world in four, though, somewhere far away in 3000 BCE is living in its
-own 2700 CE, complete with a world state. In 2000 CE the panel shows how far
-each sheet's development runs ahead of or behind Terra's.
+| Distance | Typical point of divergence |
+|---|---|
+| 1 sheet | under a century |
+| 10 sheets | about 1,000 years |
+| 100 sheets | about 10,000 years (some over a million) |
+| 1,000 sheets | about 500,000 years, and sometimes more than the age of the universe |
+
+This holds around every world, not just Terra: each has close neighbours and wildly
+different far-offs. Worlds living before 300,000 BCE have no humans yet. Worlds far
+ahead stay at the top of the technology scale, and their federations rise and fall
+in cycles. The panel shows each sheet's divergence and how far it runs ahead or
+behind.
+
+The field is a pure function of position, so it does not depend on survey order. It
+is built from smooth noise at seven scales, from 3 to 2,430 sheets, anchored at zero
+over Terra. Further walks make some far civilisations persistently unified or
+splintered, more or less dominated by states, and more boom-and-bust.
 
 ### Climate
 

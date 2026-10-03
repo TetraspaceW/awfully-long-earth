@@ -7,7 +7,7 @@ import { buildEarth } from '../src/earth.js';
 import { generateTile, canGenerate } from '../src/sim.js';
 import { getGeo, edgeLinks, neighbourPos } from '../src/geo.js';
 import { players, fmtPop, fmtMoney } from '../src/stats.js';
-import { federationAt, eraShift, effectiveYear, regionPos } from '../src/macro.js';
+import { federationAt, eraShift, effectiveYear, regionPos, divergence, POD_SWING } from '../src/macro.js';
 import { nationProfile } from '../src/bio.js';
 import { techCap } from '../src/constants.js';
 import { regionCapacity } from '../src/geo.js';
@@ -165,14 +165,18 @@ for (const t of [-1, -2, -3]) {
     for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) near = Math.max(near, Math.abs(eraShift(sd, x + 0.5, y + 0.5, 2000)));
     for (let y = -60; y <= 60; y += 6) for (let x = -60; x <= 60; x += 6) if (techCap(effectiveYear(sd, x + 0.5, y + 0.5, -2500)) >= 10) farDeep++;
   }
-  // every world's neighbours stay close, wherever it is, not just Terra's
-  let step = 0;
+  // every world's neighbours stay close, wherever it is, not just Terra's: the
+  // point of divergence swings by about max(1000 years, POD_SWING of itself)
+  let step = 0, far = 0;
   for (let sd = 1; sd <= 10; sd++) for (let i = 0; i < 60; i++) {
-    const x = ((i * 7919) % 400) - 200 + 0.5, y = ((i * 104729) % 400) - 200 + 0.5;
-    step = Math.max(step, Math.abs(eraShift(sd, x + 1, y, 2000) - eraShift(sd, x, y, 2000)), Math.abs(eraShift(sd, x, y + 1, 2000) - eraShift(sd, x, y, 2000)));
+    const x = ((i * 7919) % 2000) - 1000 + 0.5, y = ((i * 104729) % 2000) - 1000 + 0.5;
+    const P = divergence(sd, x, y, 2000);
+    far = Math.max(far, P);
+    for (const [qx, qy] of [[x + 1, y], [x, y + 1]]) step = Math.max(step, Math.abs(divergence(sd, qx, qy, 2000) - P) / Math.max(1000, POD_SWING * P));
   }
-  console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; largest step between neighbours anywhere ${step} years; world-state-level sheets in 2500 BCE (sampled to 60 sheets out, 40 seeds): ${farDeep}`);
-  assert.ok(step <= 600, 'far-off worlds differ wildly from their own neighbours');
+  console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; largest divergence step between neighbours ${step.toFixed(2)} x max(1000 years, ${POD_SWING * 100}%); largest divergence sampled ${far.toExponential(1)} years; world-state-level sheets in 2500 BCE (sampled to 60 sheets out, 40 seeds): ${farDeep}`);
+  assert.ok(step <= 2, 'far-off worlds differ wildly from their own neighbours');
+  assert.ok(far > 1e6, 'divergence never gets arbitrary');
   assert.ok(near <= 500, 'Terra\'s present-day neighbours drift too far');
   assert.ok(farDeep >= 1, 'far reaches never get strange enough');
 }

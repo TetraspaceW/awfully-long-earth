@@ -70,17 +70,50 @@ function walk(seed, tag, gx, gy, Y) {
   return Math.sign(n) * Math.min(1.3, 1.6 * Math.abs(n) ** 0.8);
 }
 
-const SHIFT_OCTAVES = [[3, 300], [10, 900], [30, 2000], [90, 4000]]; // [sheets, years]
+// Point of divergence. Every world has one: how long ago its history parted
+// from Terra's. Between neighbouring worlds it swings by at most about
+// max(1000 years, POD_SWING of itself), so it grows without limit with distance,
+// geometrically once it is large. A world runs half its divergence ahead of or
+// behind Terra's timeline.
+//
+// Implemented as a smooth "divergence coordinate" u, anchored at zero over
+// Terra's area, whose step between neighbouring sheets is at most about 1. A
+// step du moves the divergence by max(1000, POD_SWING * P) * du, so P is
+// linear in u up to 1000 / POD_SWING years and exponential beyond. The sign of
+// u says whether the world runs ahead or behind.
+export const POD_SWING = 0.2;
+const POD_STEP = 1000;
+const POD_KNEE = POD_STEP / POD_SWING;
+// [sheets, weight, years per lattice step in time]: broad octaves keep growing,
+// so the walk never levels off, and change slowly so a world's past is stable
+const POD_OCTAVES = [[3, 1, 4000], [10, 3, 6000], [30, 7, 10000], [90, 14, 20000],
+  [270, 24, 40000], [810, 40, 80000], [2430, 70, 160000]];
 
-function shiftField(seed, gx, gy, Y) {
+function podField(seed, gx, gy, Y) {
   let s = 0;
-  for (const [sc, a] of SHIFT_OCTAVES) s += a * (2 * field(seed, 'shift' + sc, gx, gy, Y, 4000, sc) - 1);
+  for (const [sc, a, per] of POD_OCTAVES) s += a * (2 * field(seed, 'pod' + sc, gx, gy, Y, per, sc) - 1);
   return s;
 }
 
-// Years this place runs ahead (+) or behind (-) Terra's timeline. Away from
-// Terra's own millennia the spread widens everywhere at once (so it stays the
-// same from place to place), and Terra's own column wanders too.
+// Years since divergence for a divergence coordinate u.
+export function podYears(u) {
+  const a = Math.abs(u);
+  return a * POD_STEP <= POD_KNEE ? a * POD_STEP : POD_KNEE * Math.exp(POD_SWING * a - 1);
+}
+
+// Divergence coordinate of a place: 0 over Terra's record. Away from Terra's own
+// millennia it widens everywhere at once (so neighbours stay close).
+function podCoord(seed, gx, gy, Y) {
+  const { dt } = terraDistance(gx, gy, Y);
+  const tx = clamp(gx, 0, 1), ty = clamp(gy, 0, 1);
+  return (podField(seed, gx, gy, Y) - podField(seed, tx, ty, Y)) * (1 + 0.15 * dt);
+}
+
+// How long ago this place's history parted from Terra's.
+export function divergence(seed, gx, gy, Y) { return Math.round(podYears(podCoord(seed, gx, gy, Y))); }
+
+// Years this place runs ahead (+) or behind (-) Terra's timeline: half its
+// divergence, plus a wander along Terra's own column away from 1-2000 CE.
 const shiftMemo = new Map();
 export function eraShift(seed, gx, gy, Y) {
   const key = `${seed}|${gx}|${gy}|${Y}`;
@@ -95,8 +128,8 @@ export function eraShift(seed, gx, gy, Y) {
 
 function computeShift(seed, gx, gy, Y) {
   const { dt } = terraDistance(gx, gy, Y);
-  const tx = clamp(gx, 0, 1), ty = clamp(gy, 0, 1);
-  const space = (shiftField(seed, gx, gy, Y) - shiftField(seed, tx, ty, Y)) * (1 + 0.5 * dt);
+  const u = podCoord(seed, gx, gy, Y);
+  const space = Math.sign(u) * podYears(u) / 2;
   const time = Math.sqrt(800000 * dt) * (2 * field(seed, 'shiftT', gx, gy, Y, 4000, 10) - 1) * 1.6;
   return Math.round(space + time);
 }
@@ -104,6 +137,10 @@ function computeShift(seed, gx, gy, Y) {
 // The year whose technology and institutions this place is living through.
 // Sea level and ice follow real time.
 export function effectiveYear(seed, gx, gy, Y) { return Y + eraShift(seed, gx, gy, Y); }
+
+// Worlds living hundreds of thousands of years before Terra's present have no
+// modern humans yet: 0 before 300,000 BCE, 1 after 200,000 BCE.
+export function humanPresence(E) { return clamp((E + 300000) / 100000, 0, 1); }
 
 const bias = (seed, tag, gx, gy, Y) => Math.min(1.5, 0.35 * driftYears(gx, gy, Y) / 1000) * walk(seed, tag, gx, gy, Y);
 
@@ -182,19 +219,24 @@ function coreAt(seed, cx, cy) {
       J: FED_ERA + 3500 * u('J') ** 1.3,         // founding, in local effective years
       grow,
       span: grow + 1000 + 4000 * u('D'),         // how long it lasts
+      gap: 1000 + 6000 * u('G'),                 // before it can rise again
       R,
       w: 0.7 + 0.6 * u('w'),                     // pull where domains overlap
     };
+    c.cycle = c.span + c.gap;
   }
   if (coreMemo.size > 20000) coreMemo.clear();
   coreMemo.set(key, c);
   return c;
 }
 
+// Federations recur: once a core's era ends, it can rise again after a gap,
+// so worlds far ahead of Terra still see them come and go.
 function coreRadius(seed, c, Y) {
   const E = effectiveYear(seed, c.gx, c.gy, Y);
-  const a = E - c.J;
-  if (a <= 0 || a >= c.span) return 0;
+  if (E <= c.J) return 0;
+  const a = (E - c.J) % c.cycle;
+  if (a >= c.span) return 0;
   const up = fade(clamp(a / c.grow, 0, 1));
   const down = fade(clamp((c.span - a) / Math.min(800, c.span / 2), 0, 1));
   return c.R * up * down;

@@ -8,7 +8,7 @@ import { buildEarth, prepareEarthGeo } from './earth.js';
 import { generateTile, canGenerate, regionName } from './sim.js';
 import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMoney } from './stats.js';
 import { renderTile, polityCss, cultureCss, rampCss, clearColorCache } from './render.js';
-import { eraShift } from './macro.js';
+import { eraShift, divergence } from './macro.js';
 import { nationProfile } from './bio.js';
 
 const STORE = 'awfully-long-earth:climate-2000';
@@ -525,12 +525,25 @@ function climateNote(x, y) {
   return `<p class="climate"><b>${esc(climateName(dT))}</b> climate, ${rel}.</p>`;
 }
 
-// How far this sheet's development has drifted from Terra's.
+// Spans of years, from "1,250" to "3.4 million" to "2.1 × 10^15".
+function spanYears(n) {
+  n = Math.abs(n);
+  if (n < 1e6) return (n < 10000 ? Math.round(n / 50) * 50 : Math.round(n / 1000) * 1000).toLocaleString('en-US');
+  const units = [[1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million']];
+  if (n >= 1e15) { const e = Math.floor(Math.log10(n)); return `${(n / 10 ** e).toFixed(1)} × 10<sup>${e}</sup>`; }
+  const [d, w] = units.find(([d]) => n >= d);
+  return `${(n / d).toFixed(n / d < 10 ? 1 : 0)} ${w}`;
+}
+
+// When this sheet's history parted from Terra's, and how far ahead or behind it runs.
 function driftNote(x, y) {
   const shift = eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);
+  const pod = divergence(state.world.seed, x + 0.5, y + 0.5, state.Y);
   if (Math.abs(shift) < 150) return '';
-  const yrs = Math.abs(Math.round(shift / 50) * 50).toLocaleString('en-US');
-  return `<p class="drift">Its development runs about ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's.</p>`;
+  const E = state.Y + shift;
+  const when = pod > 4.5e9 ? ' (before Terra itself formed)' : '';
+  const own = E < -300000 ? ' No humans have arisen here yet.' : '';
+  return `<p class="drift">Its history parted from Terra's about ${spanYears(pod)} years ago${when}, and it runs about ${spanYears(shift)} years ${shift > 0 ? 'ahead of' : 'behind'} Terra.${own}</p>`;
 }
 
 function worldsTag(p) {
