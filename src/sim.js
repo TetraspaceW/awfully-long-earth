@@ -1,0 +1,1085 @@
+// Fills a new 1 Earth x 1 Earth x 1000 year tile from its boundary conditions.
+//
+// Boundary conditions are whatever already exists around the new tile:
+//   past face    - the tile one millennium earlier: its end state is our start state
+//   future face  - the tile one millennium later: its start state is our end state,
+//                  so we steer towards it (polities that must exist get founded,
+//                  cultures and technology converge on it)
+//   side faces   - neighbouring tiles in the same millennium: their technology and
+//                  cultures diffuse across the edge, and their polities can push in
+// With no past face, a plausible starting state is drawn from the era's
+// distribution, shaped by whatever faces are known.
+//
+// The simulation runs in 50-year steps and records 5 snapshots (every 250 years).
+// Dynamics are deliberately simple and Earth-like: states emerge where farming
+// societies get complex enough, expand by weighted wars of conquest, overextend,
+// fragment and collapse; steppe hordes rise fast and fall fast; languages spread
+// with farmers and conquerors and split into daughters; technology climbs towards
+// an era ceiling, diffuses, and is knocked back by collapses and disasters.
+
+import { STEPS, STEPS_PER_SNAP, STEP_YEARS, tileStart, techCap, eraName, wrapX, ROW_MIN, ROW_MAX } from './constants.js';
+import { getGeo, edgeLinks, neighbourPos, regionCapacity, BIOME } from './geo.js';
+import { Rng, hashN } from './rng.js';
+import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
+import { regionPower } from './stats.js';
+import { cloneSnap } from './world.js';
+
+const DIR_NAME = { E: 'east', W: 'west', N: 'north', S: 'south' };
+export const T_MIN = -60, T_MAX = 9;
+
+// ------------------------------------------------------------- naming helpers
+
+const tilePhon = new Map();
+export function regionName(world, geo, r) {
+  const reg = geo.regions[r];
+  if (!reg) return '?';
+  if (reg.name) return reg.name;
+  const k = `${geo.x},${geo.y}`;
+  let p = tilePhon.get(k);
+  if (!p || p.seed !== world.seed) {
+    p = { seed: world.seed, phon: randomPhon(new Rng(hashN(world.seed, 'tilephon', geo.x, geo.y))) };
+    tilePhon.set(k, p);
+  }
+  reg.name = placeName(p.phon, new Rng(hashN(world.seed, 'rname', geo.x, geo.y, r)));
+  return reg.name;
+}
+
+function namePolity(world, rng, cultureId, type) {
+  const c = world.cultures.get(cultureId);
+  const p = c && c.phon ? c.phon : randomPhon(rng);
+  const base = placeName(p, rng);
+  const adj = adjective(base, p, rng);
+  const title = () => shortWord(p, rng).toLowerCase();
+  const forms = {
+    chiefdom: [`${adj} Confederacy`, `${base} Chiefdom`],
+    'city-states': [`${base} League`, `${adj} League`, `City of ${base}`],
+    kingdom: [`Kingdom of ${base}`, `${adj} Kingdom`, `Kingdom of ${base}`, `Realm of ${base}`],
+    empire: [`${adj} Empire`, `Empire of ${base}`],
+    horde: [`${base} Horde`, `${adj} Confederacy`, `${base} ${title()}ate`],
+    republic: [`${adj} Republic`, `Republic of ${base}`],
+    federation: [`Federation of ${base}`, `United ${base}`],
+    union: [`${adj} Union`],
+    theocracy: [`Holy ${adj} Realm`, `Theocracy of ${base}`, `${base} ${title()}ate`],
+    league: [`${base} League`, `${adj} League`],
+  };
+  return { name: rng.pick(forms[type] || forms.kingdom), adj, base };
+}
+
+function newCulture(world, rng, { parent = 0, origin = null, home = null } = {}) {
+  const par = parent ? world.cultures.get(parent) : null;
+  const phon = par && par.phon ? mutatePhon(par.phon, rng) : randomPhon(rng);
+  const name = adjective(word(phon, rng, 2), phon, rng);
+  const hue = par ? (par.hue + rng.range(-30, 30) + 360) % 360 : rng.int(0, 359);
+  return world.addCulture({ name, adj: name, phon, hue: Math.round(hue), parent, origin, home });
+}
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// --------------------------------------------------------------- public API
+
+export function canGenerate(world, x, y, t) {
+  x = wrapX(x);
+  if (y < ROW_MIN || y > ROW_MAX || t < T_MIN || t > T_MAX) return false;
+  if (world.hasTile(x, y, t)) return false;
+  if (world.hasTile(x, y, t - 1) || world.hasTile(x, y, t + 1)) return true;
+  for (const d of ['E', 'W', 'N', 'S']) {
+    const p = neighbourPos(x, y, d);
+    if (p && world.hasTile(p.x, p.y, t)) return true;
+  }
+  return false;
+}
+
+export function generateTile(world, x, y, t) {
+  return new TileSim(world, wrapX(x), y, t).run();
+}
+
+// ---------------------------------------------------------------- simulator
+
+class TileSim {
+  constructor(world, x, y, t) {
+    this.world = world; this.x = x; this.y = y; this.t = t;
+    this.pos = `${x},${y}`;
+    this.geo = getGeo(x, y);
+    this.R = this.geo.regions;
+    this.n = this.R.length;
+    this.start = tileStart(t);
+    this.end = this.start + 1000;
+    this.rng = new Rng(hashN(world.seed, 'hist', x, y, t));
+    this.past = world.tile(x, y, t - 1) || null;
+    this.future = world.tile(x, y, t + 1) || null;
+    this.target = this.future ? this.future.snaps[0] : null;
+    this.events = [];
+    this.inst = Float32Array.from(this.R, (r) => 0.4 + 1.2 * (hashN(world.seed, 'inst', x, y, r.id) / 4294967296));
+
+    // side faces
+    this.nbs = [];
+    this.ext = Array.from({ length: this.n }, () => []);
+    for (const dir of ['E', 'W', 'N', 'S']) {
+      const p = neighbourPos(x, y, dir);
+      if (!p) continue;
+      const h = world.tile(p.x, p.y, t);
+      if (!h) continue;
+      const g = getGeo(p.x, p.y);
+      const nb = { dir, x: p.x, y: p.y, hist: h, geo: g, pow: [] };
+      for (const [ra, rb] of edgeLinks(this.geo, g, dir)) this.ext[ra].push({ nb, rr: rb });
+      this.nbs.push(nb);
+    }
+    this.seenForeign = new Set();
+    this.seenCultures = new Set();
+    this.peak = new Map();
+  }
+
+  // ------------------------------------------------------------ helpers
+
+  ev(Y, kind, text, pid = 0) { this.events.push({ y: Math.round(Y), kind, text, pid }); }
+  rname(r) { return regionName(this.world, this.geo, r); }
+  pol(id) { return this.world.polities.get(id); }
+  pname(id, Y) { return this.world.polityName(id, Y); }
+  pref(id, Y, cap = false) { return this.world.polityRef(id, Y, cap); }
+  cname(id) { return this.world.cultureName(id); }
+  isHome(pid) { const p = this.pol(pid); return p && p.capital && p.capital.x === this.x && p.capital.y === this.y; }
+
+  cap(r, Y) { return regionCapacity(this.R[r], Y); }
+  habFactor(r, Y) {
+    const reg = this.R[r];
+    const m = reg.cellsNow ? this.cap(r, Y) / Math.max(1, reg.cells) : 0;
+    const hf = 0.45 + 0.55 * Math.min(1, m / 0.6);
+    return hf + (1 - hf) * clamp((Y - 1500) / 400, 0, 1);
+  }
+  techCeil(r, Y) { return techCap(Y) * this.habFactor(r, Y); }
+  power(r, Y) { return regionPower(this.R[r], this.s.tech[r], Y); }
+
+  // neighbour tile state at the snapshot nearest to step s
+  nbSnap(nb, s) { return nb.hist.snaps[clamp(Math.round(s / STEPS_PER_SNAP), 0, 4)]; }
+  extPower(pid, s, Y) {
+    let sum = 0, cnt = 0;
+    for (const nb of this.nbs) {
+      const k = clamp(Math.round(s / STEPS_PER_SNAP), 0, 4);
+      if (!nb.pow[k]) {
+        const m = new Map(), snap = nb.hist.snaps[k];
+        for (const reg of nb.geo.regions) {
+          const o = snap.owner[reg.id];
+          if (!o) continue;
+          const e = m.get(o) || { p: 0, c: 0 };
+          e.p += regionPower(reg, snap.tech[reg.id], Y); e.c++;
+          m.set(o, e);
+        }
+        nb.pow[k] = m;
+      }
+      const e = nb.pow[k].get(pid);
+      if (e) { sum += e.p; cnt += e.c; }
+    }
+    return { p: sum, c: cnt };
+  }
+
+  neighbours(r, techMin = 0) {
+    const out = this.R[r].adj.slice();
+    for (const [o, d] of this.R[r].sea) if (d <= 2 + Math.max(0, techMin - 3) * 1.5) out.push(o);
+    return out;
+  }
+
+  members() {
+    const m = new Map();
+    const { owner } = this.s;
+    for (let r = 0; r < this.n; r++) {
+      const o = owner[r];
+      if (!o) continue;
+      let a = m.get(o);
+      if (!a) m.set(o, (a = []));
+      a.push(r);
+    }
+    return m;
+  }
+
+  meanTech(list) {
+    let s = 0;
+    for (const r of list) s += this.s.tech[r];
+    return list.length ? s / list.length : 0;
+  }
+
+  limit(pid, tech, Y) {
+    const p = this.pol(pid);
+    const tf = { horde: 1.4, 'city-states': 0.35, chiefdom: 0.3, league: 0.6, empire: 1.2 }[p.type] ?? 1;
+    const modern = Y >= 1850 ? 0.6 : 1;
+    return (3 + 5 * tech) * tf * modern;
+  }
+
+  // -------------------------------------------------------------- run
+
+  run() {
+    const { world } = this;
+    this.setupTarget();
+    if (this.past) {
+      this.s = cloneSnap(this.past.snaps[4]);
+      this.pastMax = Math.max(...this.past.snaps.map((sn) => Math.max(0, ...sn.tech)));
+    } else {
+      this.prior();
+      this.pastMax = this.target ? 0 : Math.max(0, ...this.s.tech);
+    }
+    this.techMax = Math.max(this.pastMax, ...this.s.tech);
+    this.milestone = Math.floor(this.techMax);
+    for (const nb of this.nbs) for (const r of nb.hist.snaps[0].culture) this.seenCultures.add(r);
+    for (const c of this.s.culture) this.seenCultures.add(c);
+    for (const o of this.s.owner) if (o && !this.isHome(o)) this.seenForeign.add(o);
+
+    const snaps = [cloneSnap(this.s)];
+    let prevSizes = this.sizes();
+    let prevMean = this.tileMeanTech();
+    for (let s = 1; s <= STEPS; s++) {
+      const Y = this.start + s * STEP_YEARS;
+      this.step(s, Y);
+      if (s % STEPS_PER_SNAP === 0) {
+        if (s === STEPS && this.target) this.enforceTarget(Y);
+        this.narrateInterval(Y, prevSizes, prevMean);
+        prevSizes = this.sizes();
+        prevMean = this.tileMeanTech();
+        snaps.push(cloneSnap(this.s));
+      }
+    }
+    this.formBlocs();
+    const hist = { x: this.x, y: this.y, t: this.t, snaps, events: this.pruneEvents() };
+    world.setTile(hist);
+    return hist;
+  }
+
+  sizes() {
+    const m = new Map();
+    for (const o of this.s.owner) if (o) m.set(o, (m.get(o) || 0) + 1);
+    return m;
+  }
+
+  tileMeanTech() {
+    let s = 0, w = 0;
+    for (let r = 0; r < this.n; r++) {
+      const c = this.cap(r, this.start + 500);
+      s += this.s.tech[r] * c; w += c;
+    }
+    return w ? s / w : 0;
+  }
+
+  // ------------------------------------------------------ future face
+
+  setupTarget() {
+    this.destined = new Map();
+    if (!this.target) return;
+    const T = this.target;
+    for (let r = 0; r < this.n; r++) {
+      const o = T.owner[r];
+      if (!o) continue;
+      let d = this.destined.get(o);
+      if (!d) this.destined.set(o, (d = { regions: new Set(), capReg: -1, seedYear: null, seeded: false }));
+      d.regions.add(r);
+    }
+    for (const [pid, d] of this.destined) {
+      const p = this.pol(pid);
+      if (p.capital && p.capital.x === this.x && p.capital.y === this.y && d.regions.has(p.capital.r)) {
+        d.capReg = p.capital.r;
+      } else {
+        let best = -1, bc = -1;
+        for (const r of d.regions) { const c = this.cap(r, this.end); if (c > bc) { bc = c; best = r; } }
+        d.capReg = best;
+      }
+      const size = d.regions.size;
+      if (p.founded != null && p.founded < this.end) d.seedYear = p.founded;
+      else d.seedYear = this.end - Math.round(this.rng.range(60, Math.min(950, 150 + 70 * size)) / STEP_YEARS) * STEP_YEARS;
+    }
+  }
+
+  isDestined(pid) { return this.destined.has(pid); }
+
+  seedDestined(Y, quiet) {
+    for (const [pid, d] of this.destined) {
+      if (d.seeded || d.seedYear > Y) continue;
+      d.seeded = true;
+      if (this.s.owner.includes(pid)) continue;
+      const r = d.capReg;
+      if (r < 0) continue;
+      this.s.owner[r] = pid;
+      const p = this.pol(pid);
+      if (p.founded == null) p.founded = Math.max(d.seedYear, this.start - 500);
+      if (!quiet) {
+        const where = this.rname(r);
+        this.ev(Math.max(Y - this.rng.int(0, 49), d.seedYear), 'polity',
+          this.isHome(pid) ? `${this.pref(pid, Y, true)} is founded in ${where}.` : `${this.pref(pid, Y, true)} gains a foothold in ${where}.`, pid);
+      }
+    }
+  }
+
+  enforceTarget(Y) {
+    const T = this.target;
+    const before = this.sizes();
+    const after = new Map();
+    for (const o of T.owner) if (o) after.set(o, (after.get(o) || 0) + 1);
+    for (const [pid] of before) {
+      if (after.has(pid)) continue;
+      // who takes its lands?
+      const heirs = new Map();
+      for (let r = 0; r < this.n; r++) if (this.s.owner[r] === pid && T.owner[r]) heirs.set(T.owner[r], (heirs.get(T.owner[r]) || 0) + 1);
+      let heir = 0, hc = 0;
+      for (const [h, c] of heirs) if (c > hc) { hc = c; heir = h; }
+      const yy = Y - this.rng.int(1, 40);
+      if (this.isHome(pid)) {
+        const p = this.pol(pid);
+        if (p.ended == null || p.ended > yy) p.ended = yy;
+        this.ev(yy, 'polity', heir ? `${this.pref(pid, yy, true)} is overrun and absorbed by ${this.pref(heir, yy)}.`
+          : `${this.pref(pid, yy, true)} disintegrates.`, pid);
+      }
+    }
+    // cultures that vanish here
+    const cBefore = new Set(this.s.culture), cAfter = new Set(T.culture);
+    for (const c of cBefore) {
+      if (!c || cAfter.has(c)) continue;
+      const heirs = new Map();
+      for (let r = 0; r < this.n; r++) if (this.s.culture[r] === c && T.culture[r]) heirs.set(T.culture[r], (heirs.get(T.culture[r]) || 0) + 1);
+      let heir = 0, hc = 0;
+      for (const [h, n] of heirs) if (n > hc) { hc = n; heir = h; }
+      if (heir) this.ev(Y - this.rng.int(10, 200), 'culture', `The last ${this.cname(c)}-speaking communities are absorbed by the ${this.cname(heir)}.`);
+    }
+    this.s = cloneSnap(T);
+  }
+
+  // ------------------------------------------------------------- prior
+
+  prior() {
+    const { n, R, rng, start: Y } = this;
+    const T = this.target;
+    const owner = new Int32Array(n), culture = new Int32Array(n), tech = new Float32Array(n);
+    this.s = { owner, culture, tech };
+
+    // technology: era baseline, smoothed, nudged towards the edges and the future
+    for (let r = 0; r < n; r++) {
+      if (this.cap(r, Y) < 0.03 && !(T && T.culture[r])) continue;
+      let v = this.techCeil(r, Y) * rng.range(0.6, 1.0);
+      if (T) v = 0.5 * v + 0.5 * Math.min(v, T.tech[r] + 0.3);
+      tech[r] = v;
+    }
+    for (let it = 0; it < 2; it++) {
+      const nt = tech.slice();
+      for (let r = 0; r < n; r++) {
+        if (!tech[r]) continue;
+        let s = tech[r], c = 1;
+        for (const o of R[r].adj) if (tech[o]) { s += tech[o]; c++; }
+        for (const e of this.ext[r]) { s += 2 * e.nb.hist.snaps[0].tech[e.rr]; c += 2; }
+        nt[r] = s / c;
+      }
+      tech.set(nt);
+    }
+
+    // cultures
+    if (T) this.priorCulturesFromTarget();
+    else this.priorCultures();
+
+    // polities: neighbouring states reach across the edge, then a warm-up
+    for (let r = 0; r < n; r++) {
+      for (const e of this.ext[r]) {
+        const o = e.nb.hist.snaps[0].owner[e.rr];
+        const p = o && this.pol(o);
+        if (p && (p.ended == null || p.ended > Y) && this.cap(r, Y) >= 0.05 && rng.chance(0.35)) owner[r] = o;
+      }
+    }
+    const created = [];
+    this.warm = true;
+    for (let i = 0; i < 8; i++) {
+      this.seedDestined(Y, true);
+      this.emergence(0, Y, created);
+      const mem = this.members();
+      this.expansion(0, Y, mem);
+    }
+    this.warm = false;
+    for (const pid of created) {
+      const p = this.pol(pid);
+      if (!this.isDestined(pid)) p.founded = null; // "before the start of this millennium"
+    }
+  }
+
+  priorCultures() {
+    const { n, R, rng, start: Y } = this;
+    const { culture, tech } = this.s;
+    const order = [];
+    for (let r = 0; r < n; r++) {
+      if (this.cap(r, Y) < 0.03) continue;
+      for (const e of this.ext[r]) {
+        const c = e.nb.hist.snaps[0].culture[e.rr];
+        if (c) { culture[r] = c; order.push(r); break; }
+      }
+    }
+    const habitable = [];
+    for (let r = 0; r < n; r++) if (this.cap(r, Y) >= 0.03) habitable.push(r);
+    const mt = this.meanTech(habitable);
+    const k = Math.max(1, Math.round(habitable.length / (6 + 2.5 * mt)) - order.length);
+    rng.shuffle(habitable);
+    for (const r of habitable.slice(0, k)) {
+      if (culture[r]) continue;
+      culture[r] = newCulture(this.world, rng, { origin: null, home: this.pos });
+      order.push(r);
+    }
+    this.floodFill(culture, order, (r) => this.cap(r, Y) >= 0.03);
+    // stragglers on unreachable islands get their own peoples
+    for (const r of habitable) {
+      if (culture[r]) continue;
+      culture[r] = newCulture(this.world, rng, { origin: null, home: this.pos });
+      this.floodFill(culture, [r], (q) => this.cap(q, Y) >= 0.03);
+    }
+    for (let r = 0; r < n; r++) if (!culture[r]) tech[r] = 0;
+  }
+
+  floodFill(arr, seeds, ok) {
+    let frontier = seeds.slice();
+    while (frontier.length) {
+      this.rng.shuffle(frontier);
+      const next = [];
+      for (const r of frontier) {
+        for (const o of this.neighbours(r, 3)) {
+          if (arr[o] || !ok(o)) continue;
+          arr[o] = arr[r];
+          next.push(o);
+        }
+      }
+      frontier = next;
+    }
+  }
+
+  // Start from the future's languages, but leave room for them to have spread:
+  // parts of a family's range begin under older peoples it will absorb.
+  priorCulturesFromTarget() {
+    const { n, rng, start } = this;
+    const T = this.target;
+    const { culture, tech } = this.s;
+    culture.set(T.culture);
+    const byC = new Map();
+    for (let r = 0; r < n; r++) { const c = T.culture[r]; if (c) { if (!byC.has(c)) byC.set(c, []); byC.get(c).push(r); } }
+    this.emerging = [];
+    for (const [c, regs] of byC) {
+      const rec = this.world.cultures.get(c);
+      if (rec && rec.origin != null && rec.origin > start) {
+        // born during this millennium from its parent (or from an older people)
+        const par = rec.parent && this.world.cultures.has(rec.parent) ? rec.parent
+          : newCulture(this.world, rng, { origin: null, home: this.pos });
+        for (const r of regs) culture[r] = par;
+        this.emerging.push({ c, from: par, regs, year: rec.origin });
+        continue;
+      }
+      if (regs.length < 4 || !rng.chance(0.4)) continue;
+      // a periphery of this family's range starts out as someone else's
+      const frac = rng.range(0.25, 0.55);
+      const set = new Set(regs);
+      const seed = rng.pick(regs);
+      const cluster = [seed], seen = new Set([seed]);
+      for (let i = 0; i < cluster.length && cluster.length < regs.length * frac; i++) {
+        for (const o of this.R[cluster[i]].adj) if (set.has(o) && !seen.has(o)) { seen.add(o); cluster.push(o); }
+      }
+      if (cluster.length === regs.length) cluster.pop();
+      let sub = 0;
+      for (const r of cluster) for (const o of this.R[r].adj) if (!set.has(o) && T.culture[o]) sub = T.culture[o];
+      if (!sub || rng.chance(0.55)) sub = newCulture(this.world, rng, { origin: null, home: this.pos });
+      for (const r of cluster) culture[r] = sub;
+    }
+    for (let r = 0; r < n; r++) if (!culture[r]) tech[r] = 0;
+  }
+
+  // -------------------------------------------------------------- step
+
+  step(s, Y) {
+    this.Y = Y;
+    this.seedDestined(Y, false);
+    this.techStep(s, Y);
+    const shocked = this.shocks(s, Y);
+    this.cultureStep(s, Y);
+    const created = [];
+    this.foreignEnds(Y);
+    this.emergence(s, Y, created);
+    let mem = this.members();
+    this.expansion(s, Y, mem);
+    this.incursions(s, Y);
+    mem = this.members();
+    this.secessions(s, Y, mem);
+    mem = this.members();
+    this.collapses(s, Y, mem, shocked);
+    mem = this.members();
+    this.reforms(s, Y, mem);
+    this.pull(s, Y);
+    this.milestones(Y);
+  }
+
+  techStep(s, Y) {
+    const { n, R, rng } = this;
+    const { tech, owner, culture } = this.s;
+    const nt = tech.slice();
+    const ceilNow = techCap(Y);
+    for (let r = 0; r < n; r++) {
+      if (!culture[r]) { nt[r] = 0; continue; }
+      const c = this.techCeil(r, Y);
+      let t = tech[r];
+      const m = R[r].cellsNow ? this.cap(r, Y) / R[r].cells : 0;
+      const rate = (0.02 + 0.05 * Math.min(1, m / 0.6)) * (owner[r] ? 1.4 : 1) * rng.range(0.5, 1.5);
+      if (t < c) t += (c - t) * rate;
+      else t -= (t - c) * 0.15;
+      let best = 0;
+      for (const o of R[r].adj) if (tech[o] > best) best = tech[o];
+      for (const [o, d] of R[r].sea) if (tech[o] >= 3 && t >= 2) best = Math.max(best, tech[o] - 0.25 * d);
+      for (const e of this.ext[r]) best = Math.max(best, this.nbSnap(e.nb, s).tech[e.rr]);
+      if (best > t + 0.3) t += (best - t - 0.3) * 0.15;
+      // the modern breakthrough spreads everywhere, unevenly: each region converges
+      // on the frontier minus a persistent institutional gap, giving Earth-like
+      // inequality by 2000
+      if (Y >= 1550) {
+        const goal = ceilNow - 0.1 - (1.6 - this.inst[r]) * 1.6;
+        if (t < goal) t += (goal - t) * 0.35 * clamp((Y - 1550) / 300, 0, 1);
+      }
+      nt[r] = Math.min(t, ceilNow + 0.2);
+    }
+    tech.set(nt);
+    for (let r = 0; r < n; r++) if (tech[r] > this.techMax) this.techMax = tech[r];
+  }
+
+  shocks(s, Y) {
+    const { rng } = this;
+    const shocked = new Set();
+    const p = Y >= 1900 ? 0.004 : 0.02;
+    if (!rng.chance(p)) return shocked;
+    const live = [];
+    for (let r = 0; r < this.n; r++) if (this.s.culture[r] && this.s.tech[r] >= 1) live.push(r);
+    if (!live.length) return shocked;
+    const r0 = rng.weighted(live, (r) => this.cap(r, Y) * this.s.tech[r]);
+    const radius = rng.int(2, 6);
+    let frontier = [r0];
+    shocked.add(r0);
+    for (let d = 0; d < radius; d++) {
+      const next = [];
+      for (const r of frontier) for (const o of this.R[r].adj) if (!shocked.has(o)) { shocked.add(o); next.push(o); }
+      frontier = next;
+    }
+    const kinds = Y >= 1800
+      ? ['A pandemic', 'A great famine', 'A financial crash and civil strife']
+      : ['A plague', 'A great drought', 'A volcanic winter', 'A cattle plague and famine', 'A succession of failed harvests', 'Earthquakes and floods'];
+    for (const r of shocked) if (this.s.tech[r] >= 2 && Y < 1900) this.s.tech[r] = Math.max(0.5, this.s.tech[r] - rng.range(0.1, 0.45));
+    if (shocked.size >= 4) this.ev(Y - rng.int(0, 49), 'disaster', `${rng.pick(kinds)} strikes ${this.rname(r0)} and the lands around it.`);
+    return shocked;
+  }
+
+  cultureStep(s, Y) {
+    const { n, R, rng } = this;
+    const { culture, tech, owner } = this.s;
+    const spread = new Map();
+    for (let r = 0; r < n; r++) {
+      const cap = this.cap(r, Y);
+      if (cap < 0.03) { if (!(this.target && this.target.culture[r])) { culture[r] = 0; tech[r] = 0; owner[r] = 0; } continue; }
+      // colonise empty land, migrate into less developed land
+      const cands = [];
+      for (const o of R[r].adj) if (culture[o]) cands.push([culture[o], tech[o], null]);
+      for (const [o, d] of R[r].sea) if (culture[o] && tech[o] >= 1.5 + d * 0.3) cands.push([culture[o], tech[o] - 0.2 * d, null]);
+      for (const e of this.ext[r]) {
+        const sn = this.nbSnap(e.nb, s);
+        if (sn.culture[e.rr]) cands.push([sn.culture[e.rr], sn.tech[e.rr], e.nb.dir]);
+      }
+      if (!culture[r]) {
+        if (cands.length && rng.chance(0.35)) {
+          const [c, t, dir] = cands.reduce((a, b) => (b[1] > a[1] ? b : a));
+          culture[r] = c; tech[r] = Math.max(0.5, t - 0.5);
+          this.noteArrival(c, dir, Y, r);
+        }
+        continue;
+      }
+      if (tech[r] < 2.6) {
+        for (const [c, t, dir] of cands) {
+          const diff = t - tech[r];
+          if (c === culture[r] || diff < 0.9) continue;
+          if (rng.chance(0.05 * diff)) {
+            culture[r] = c; tech[r] += 0.5 * diff;
+            spread.set(c, (spread.get(c) || 0) + 1);
+            this.noteArrival(c, dir, Y, r);
+            break;
+          }
+        }
+      }
+      // assimilation by rulers
+      const o = owner[r];
+      if (o) {
+        const pc = this.pol(o).culture;
+        if (pc && pc !== culture[r] && (this.world.cultures.has(pc))) {
+          const pr = Y > 1900 ? 0.003 : 0.008 + (this.pol(o).type === 'horde' ? 0.02 : 0);
+          if (rng.chance(pr)) { culture[r] = pc; this.noteArrival(pc, null, Y, r); }
+        }
+      }
+    }
+    for (const [c, k] of spread) {
+      if (k >= 3) this.ev(Y - rng.int(0, 49), 'culture', `${this.cname(c)}-speaking settlers spread into ${k} new lands, bringing their crops and herds.`);
+    }
+    this.divergence(Y);
+    this.emergingCultures(Y);
+  }
+
+  noteArrival(c, dir, Y, r) {
+    if (this.seenCultures.has(c)) return;
+    this.seenCultures.add(c);
+    if (this.warm) return;
+    this.ev(Y - this.rng.int(0, 49), 'contact', dir
+      ? `${this.cname(c)} migrants arrive from the ${DIR_NAME[dir]} and settle ${this.rname(r)}.`
+      : `The ${this.cname(c)} language takes hold in ${this.rname(r)}.`);
+  }
+
+  divergence(Y) {
+    const { rng } = this;
+    const { culture } = this.s;
+    const byC = new Map();
+    for (let r = 0; r < this.n; r++) if (culture[r]) { if (!byC.has(culture[r])) byC.set(culture[r], []); byC.get(culture[r]).push(r); }
+    for (const [c, regs] of byC) {
+      if (regs.length < 6) continue;
+      if (this.target) {
+        // don't invent languages the future doesn't remember
+        continue;
+      }
+      const rec = this.world.cultures.get(c);
+      const age = rec.origin == null ? 2000 : Y - rec.origin;
+      if (age < 1000) continue;
+      if (!rng.chance(0.004 * (regs.length / 6) * Math.min(2, age / 1500))) continue;
+      const set = new Set(regs);
+      const seed = rng.pick(regs);
+      const want = Math.max(2, Math.round(regs.length * rng.range(0.25, 0.45)));
+      const cluster = [seed], seen = new Set([seed]);
+      for (let i = 0; i < cluster.length && cluster.length < want; i++) {
+        for (const o of this.R[cluster[i]].adj) if (set.has(o) && !seen.has(o)) { seen.add(o); cluster.push(o); }
+      }
+      if (cluster.length < 2) continue;
+      const d = newCulture(this.world, rng, { parent: c, origin: Y, home: this.pos });
+      for (const r of cluster) culture[r] = d;
+      this.seenCultures.add(d);
+      this.ev(Y - rng.int(0, 49), 'culture', `Cut off from their kin, the ${this.cname(c)} speakers around ${this.rname(seed)} drift apart: the ${this.cname(d)} language emerges.`);
+    }
+  }
+
+  emergingCultures(Y) {
+    if (!this.emerging) return;
+    for (const e of this.emerging) {
+      if (e.done || Y < e.year) continue;
+      e.done = true;
+      for (const r of e.regs) if (this.s.culture[r] === e.from) this.s.culture[r] = e.c;
+      this.seenCultures.add(e.c);
+      this.ev(e.year, 'culture', `The ${this.cname(e.c)} language emerges from ${this.cname(e.from)}.`);
+    }
+  }
+
+  // ---------------------------------------------------------- polities
+
+  createPolity(r, Y, created, { type, culture, parent } = {}) {
+    const { rng } = this;
+    if (this.target && Y >= this.end) return 0; // the future face decides who exists at the end
+    const c = culture || this.s.culture[r];
+    if (!c) return 0;
+    const tech = this.s.tech[r];
+    if (!type) type = this.typeFor(r, tech, Y);
+    const nm = namePolity(this.world, rng, c, type);
+    const par = parent && this.pol(parent);
+    const hue = par ? (par.color[0] + rng.range(-35, 35) + 360) % 360 : rng.int(0, 359);
+    const pid = this.world.addPolity({
+      name: nm.name, adj: nm.adj, base: nm.base, culture: c, type, founded: Y, ended: null,
+      capital: { x: this.x, y: this.y, r }, home: this.pos, agg: Math.round(rng.range(0.6, 1.4) * 100) / 100,
+      color: [Math.round(hue), rng.int(40, 70), rng.int(40, 60)],
+    });
+    this.s.owner[r] = pid;
+    if (created) created.push(pid);
+    return pid;
+  }
+
+  typeFor(r, tech, Y) {
+    const { rng } = this;
+    const reg = this.R[r];
+    if (Y >= 1800 && tech >= 7) return rng.weighted(['republic', 'republic', 'kingdom', 'federation', 'union'], () => 1);
+    if (reg.steppe > 0.4 && tech < 6.5 && rng.chance(0.7)) return 'horde';
+    if (tech < 3.2) return rng.chance(0.5) ? 'chiefdom' : 'city-states';
+    const r0 = rng.next();
+    if (r0 < 0.62) return 'kingdom';
+    if (r0 < 0.76 && tech < 5.5) return 'city-states';
+    if (r0 < 0.84) return 'republic';
+    if (r0 < 0.92) return 'theocracy';
+    return 'league';
+  }
+
+  emergence(s, Y, created) {
+    const { rng } = this;
+    const { owner, tech, culture } = this.s;
+    for (let r = 0; r < this.n; r++) {
+      if (owner[r] || !culture[r] || tech[r] < 2.6) continue;
+      const cap = this.cap(r, Y);
+      if (cap < 0.3) continue;
+      if (this.target && this.target.owner[r] && this.isDestined(this.target.owner[r]) && s > 14) continue;
+      const P = 0.025 * (tech[r] - 2.4) * Math.min(1, cap / 3) * (Y >= 1950 ? 6 : 1);
+      if (!rng.chance(P)) continue;
+      const pid = this.createPolity(r, Y, created);
+      if (pid && !this.warm && (tech[r] >= 3 || rng.chance(0.3))) {
+        this.ev(Y - rng.int(0, 49), 'polity', `${this.pref(pid, Y, true)} is founded in ${this.rname(r)}.`, pid);
+      }
+    }
+  }
+
+  strength(pid, mem, s, Y) {
+    let p = 0;
+    for (const r of mem.get(pid) || []) p += this.power(r, Y);
+    const e = this.extPower(pid, s, Y);
+    return { p: p + e.p, extCount: e.c };
+  }
+
+  attackRate(Y, pTech, tTech, pid) {
+    const colonial = Y >= 1500 && Y < 1950 && pTech - tTech >= 1.5;
+    let base = 0.3;
+    if (Y >= 1850) base = 0.05;
+    if (Y >= 1950) base = 0.004;
+    if (colonial) base = Math.max(base, 0.5);
+    return base * (this.pol(pid).agg || 1);
+  }
+
+  expansion(s, Y, mem) {
+    const { rng } = this;
+    const { owner, tech } = this.s;
+    const pids = rng.shuffle([...mem.keys()]);
+    const str = new Map();
+    const S = (pid) => {
+      if (!str.has(pid)) str.set(pid, this.strength(pid, mem, s, Y));
+      return str.get(pid);
+    };
+    for (const pid of pids) {
+      const list = mem.get(pid);
+      if (!list || !list.length) continue;
+      const p = this.pol(pid);
+      if (p.ended != null && p.ended <= Y) continue;
+      const pt = this.meanTech(list);
+      const st = S(pid);
+      const size = list.length + st.extCount;
+      const L = this.limit(pid, pt, Y);
+      const coh = clamp(1.25 - size / L, 0.03, 1);
+      const tries = 1 + Math.min(3, Math.floor(size / 8));
+      const dest = this.destined.get(pid);
+      for (let k = 0; k < tries; k++) {
+        const cand = new Set();
+        for (const r of list) {
+          if (owner[r] !== pid) continue;
+          for (const o of this.neighbours(r, pt)) {
+            if (owner[o] === pid || !this.s.culture[o] || this.cap(o, Y) < 0.05) continue;
+            if (dest && !dest.regions.has(o)) continue;
+            cand.add(o);
+          }
+        }
+        if (!cand.size) break;
+        const r = rng.weighted([...cand], (o) => (this.cap(o, Y) + 0.3) * (owner[o] ? 1 : 1.5));
+        const q = owner[r];
+        let D;
+        if (q) {
+          D = S(q).p * 1.1;
+          const qd = this.destined.get(q);
+          if (qd && qd.regions.has(r)) D *= 3 + 10 * (s / STEPS);
+        } else {
+          D = this.power(r, Y) * 0.8 + 0.5;
+          if (tech[r] < 2) D *= 0.3;
+        }
+        const A = st.p * coh;
+        const ratio = A / (A + D);
+        let P = this.attackRate(Y, pt, tech[r], pid) * ratio * ratio * 2 * (q ? 0.7 : 1);
+        if (dest) P *= 1 + 6 * (s / STEPS) ** 2;
+        if (rng.chance(Math.min(0.9, P))) this.annex(pid, r, q, Y);
+      }
+    }
+  }
+
+  annex(pid, r, q, Y) {
+    const { owner } = this.s;
+    owner[r] = pid;
+    const p = this.pol(pid);
+    if (p.type === 'horde' && this.rng.chance(0.25)) this.s.culture[r] = p.culture || this.s.culture[r];
+    if (q) this.capitalCheck(q, Y, pid);
+  }
+
+  // a polity that lost its capital moves it, or dies
+  capitalCheck(q, Y, by) {
+    const p = this.pol(q);
+    if (!p.capital || p.capital.x !== this.x || p.capital.y !== this.y) return;
+    if (this.s.owner[p.capital.r] === q) return;
+    let best = -1, bc = -1;
+    for (let r = 0; r < this.n; r++) if (this.s.owner[r] === q) { const c = this.cap(r, Y); if (c > bc) { bc = c; best = r; } }
+    if (best >= 0) { p.capital = { x: this.x, y: this.y, r: best }; return; }
+    // holdings elsewhere?
+    for (const nb of this.nbs) {
+      const sn = nb.hist.snaps[4];
+      const rr = sn.owner.indexOf(q);
+      if (rr >= 0) { p.capital = { x: nb.x, y: nb.y, r: rr }; return; }
+    }
+    if (this.isDestined(q)) return;
+    p.ended = Y;
+    if (!this.warm) this.ev(Y - this.rng.int(0, 49), 'war', by ? `${this.pref(q, Y, true)} is conquered by ${this.pref(by, Y)}.` : `${this.pref(q, Y, true)} is extinguished.`, q);
+  }
+
+  incursions(s, Y) {
+    const { rng } = this;
+    const { owner, tech } = this.s;
+    let mem = null;
+    for (let r = 0; r < this.n; r++) {
+      if (!this.ext[r].length || this.cap(r, Y) < 0.05 || !this.s.culture[r]) continue;
+      const e = rng.pick(this.ext[r]);
+      const sn = this.nbSnap(e.nb, s);
+      const q = sn.owner[e.rr];
+      if (!q || q === owner[r]) continue;
+      const p = this.pol(q);
+      if (!p || (p.ended != null && p.ended <= Y)) continue;
+      if (this.destined.size && !this.isDestined(q) && s > 10) continue;
+      const qd = this.destined.get(q);
+      if (qd && !qd.regions.has(r)) continue;
+      const A = this.extPower(q, s, Y).p;
+      if (owner[r] && !mem) mem = this.members();
+      const D = owner[r] ? this.strength(owner[r], mem, s, Y).p * 1.2 : this.power(r, Y) * 0.8 + 0.5;
+      const ratio = A / (A + D);
+      const P = this.attackRate(Y, sn.tech[e.rr], tech[r], q) * ratio * ratio * (qd ? 2 : 0.6);
+      if (!rng.chance(Math.min(0.8, P))) continue;
+      const prev = owner[r];
+      this.annex(q, r, prev, Y);
+      if (!this.seenForeign.has(q)) {
+        this.seenForeign.add(q);
+        this.ev(Y - rng.int(0, 49), 'contact', `${this.pref(q, Y, true)} pushes in from the ${DIR_NAME[e.nb.dir]} and takes ${this.rname(r)}.`, q);
+      }
+    }
+  }
+
+  foreignEnds(Y) {
+    const ended = new Set();
+    for (let r = 0; r < this.n; r++) {
+      const o = this.s.owner[r];
+      if (!o || ended.has(o)) continue;
+      const p = this.pol(o);
+      if (p.ended != null && p.ended <= Y && !this.isDestined(o)) ended.add(o);
+    }
+    for (const pid of ended) this.fragment(pid, Y, `After the fall of ${this.pref(pid, Y)}, its provinces here go their own way.`);
+  }
+
+  fragment(pid, Y, text) {
+    const { rng } = this;
+    const { owner, culture, tech } = this.s;
+    const list = [];
+    for (let r = 0; r < this.n; r++) if (owner[r] === pid) { list.push(r); owner[r] = 0; }
+    if (!list.length) return;
+    if (text && !this.warm) this.ev(Y - rng.int(0, 49), 'war', text, pid);
+    const set = new Set(list), seen = new Set();
+    const successors = [];
+    for (const r0 of list) {
+      if (seen.has(r0)) continue;
+      const comp = [r0];
+      seen.add(r0);
+      for (let i = 0; i < comp.length; i++) {
+        for (const o of this.R[comp[i]].adj) {
+          if (set.has(o) && !seen.has(o) && culture[o] === culture[r0]) { seen.add(o); comp.push(o); }
+        }
+      }
+      if (Y < 1900) for (const r of comp) if (tech[r] >= 3) tech[r] = Math.max(2.5, tech[r] - rng.range(0.1, 0.6));
+      const best = comp.reduce((a, b) => (tech[b] > tech[a] ? b : a));
+      if (tech[best] < 2.6 || !rng.chance(0.85)) continue;
+      const np = this.createPolity(best, Y, null, { parent: pid });
+      if (!np) continue;
+      for (const r of comp) owner[r] = np;
+      successors.push([np, comp.length]);
+    }
+    successors.sort((a, b) => b[1] - a[1]);
+    if (!this.warm && successors.length && list.length >= 3) {
+      const names = successors.slice(0, 3).map(([s]) => `${this.pref(s, Y)}`);
+      this.ev(Y - rng.int(0, 49), 'polity', `Successor states arise: ${names.join(', ')}${successors.length > 3 ? ` and ${successors.length - 3} more` : ''}.`, pid);
+    }
+  }
+
+  secessions(s, Y, mem) {
+    const { rng } = this;
+    const { culture, owner } = this.s;
+    for (const [pid, list] of mem) {
+      if (list.length < 4 || this.isDestined(pid)) continue;
+      const p = this.pol(pid);
+      const L = this.limit(pid, this.meanTech(list), Y);
+      const foreignShare = list.filter((r) => culture[r] !== p.culture).length / list.length;
+      let P = 0.02 * Math.max(0, list.length / L - 0.6) + 0.015 * foreignShare;
+      if (Y >= 1945 && foreignShare > 0.3) P += 0.3;
+      if (this.target && s > 15) P *= 0.3;
+      if (!rng.chance(P)) continue;
+      const capR = p.capital && p.capital.x === this.x && p.capital.y === this.y ? p.capital.r : -1;
+      const cx = capR >= 0 ? this.R[capR].cx : 120, cy = capR >= 0 ? this.R[capR].cy : 60;
+      const seed = rng.weighted(list.filter((r) => r !== capR),
+        (r) => (culture[r] !== p.culture ? 3 : 1) * (1 + Math.hypot(this.R[r].cx - cx, this.R[r].cy - cy)));
+      if (seed === undefined) continue;
+      const want = Math.max(1, Math.round(list.length * rng.range(0.15, 0.4)));
+      const set = new Set(list.filter((r) => r !== capR));
+      const cluster = [seed], seen = new Set([seed]);
+      for (let i = 0; i < cluster.length && cluster.length < want; i++) {
+        for (const o of this.R[cluster[i]].adj) {
+          if (set.has(o) && !seen.has(o) && culture[o] === culture[seed]) { seen.add(o); cluster.push(o); }
+        }
+      }
+      const np = this.createPolity(seed, Y, null, { parent: pid, type: Y >= 1945 ? 'republic' : undefined });
+      if (!np) continue;
+      for (const r of cluster) owner[r] = np;
+      if (cluster.length >= 2 || Y >= 1800) {
+        const verb = Y >= 1945 ? 'wins independence from' : rng.pick(['breaks away from', 'rebels against', 'throws off the rule of']);
+        this.ev(Y - rng.int(0, 49), 'war', `${this.pref(np, Y, true)} ${verb} ${this.pref(pid, Y)}.`, np);
+      }
+    }
+  }
+
+  collapses(s, Y, mem, shocked) {
+    const { rng } = this;
+    for (const [pid, list] of mem) {
+      if (!this.isHome(pid) || this.isDestined(pid)) continue;
+      const p = this.pol(pid);
+      if (p.earth) continue;
+      const t = this.meanTech(list);
+      const ext = this.extPower(pid, s, Y).c;
+      const size = list.length + ext;
+      const L = this.limit(pid, t, Y);
+      const age = Y - (p.founded ?? this.start - 200);
+      let P = 0.004 + 0.07 * Math.max(0, size / L - 0.85) + Math.min(0.04, Math.max(0, age - 200) / 20000);
+      if (p.type === 'horde') P *= 2.2;
+      if (Y >= 1850 && t >= 7.5) P *= 0.15;
+      if (shocked.has(p.capital.r)) P += 0.12;
+      if (this.target) P += 0.25 * (s / STEPS) ** 3;
+      if (!rng.chance(P)) continue;
+      p.ended = Y;
+      const how = Y >= 1850
+        ? ['collapses in revolution', 'dissolves', 'breaks apart in civil war']
+        : ['collapses', 'falls into civil war and breaks apart', 'is torn apart by rival claimants', 'fragments after its last strong ruler dies'];
+      this.fragment(pid, Y, `${this.pref(pid, Y, true)} ${rng.pick(how)}${size >= 10 ? ` after ${Math.max(50, Y - (p.founded ?? Y - 200))} years` : ''}.`);
+    }
+  }
+
+  reforms(s, Y, mem) {
+    const { rng } = this;
+    for (const [pid, list] of mem) {
+      const p = this.pol(pid);
+      if (!this.isHome(pid) || p.earth) continue;
+      const t = this.meanTech(list);
+      if (p.type === 'kingdom' && list.length >= 14 && rng.chance(0.2)) {
+        p.type = 'empire';
+        const nm = `${p.adj} Empire`;
+        p.names = p.names || [[p.founded ?? this.start, p.name]];
+        p.names.push([Y, nm]);
+        this.ev(Y - rng.int(0, 49), 'polity', `The ${p.name} proclaims itself the ${nm}.`, pid);
+      } else if (!['republic', 'federation', 'union'].includes(p.type) && Y >= 1780 && t >= 7.3 && rng.chance(p.type === 'kingdom' ? 0.06 : 0.15)) {
+        const big = list.length >= 8;
+        const nm = big && rng.chance(0.5) ? `Federation of ${p.base ?? p.adj}` : rng.chance(0.5) ? `${p.adj} Republic` : `Republic of ${p.base ?? p.adj}`;
+        p.type = big ? 'federation' : 'republic';
+        p.names = p.names || [[p.founded ?? this.start, p.name]];
+        p.names.push([Y, nm]);
+        this.ev(Y - rng.int(0, 49), 'polity', `Revolution: ${this.pref(pid, Y - 1)} becomes the ${nm}.`, pid);
+      }
+    }
+    // dynastic unions of small kin states
+    if (!this.target && rng.chance(0.08)) {
+      const pids = [...mem.keys()].filter((p) => mem.get(p).length < 6 && this.isHome(p) && !this.pol(p).earth);
+      for (const a of pids) {
+        const ca = this.pol(a).culture;
+        for (const r of mem.get(a)) {
+          for (const o of this.R[r].adj) {
+            const b = this.s.owner[o];
+            if (!b || b === a || this.pol(b).culture !== ca || this.pol(b).earth || !this.isHome(b)) continue;
+            const [big, small] = (mem.get(b)?.length || 0) >= mem.get(a).length ? [b, a] : [a, b];
+            for (let q = 0; q < this.n; q++) if (this.s.owner[q] === small) this.s.owner[q] = big;
+            this.pol(small).ended = Y;
+            this.ev(Y - rng.int(0, 49), 'polity', `A dynastic marriage unites ${this.pref(small, Y)} with ${this.pref(big, Y)}.`, big);
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  // steer towards the future face
+  pull(s, Y) {
+    const T = this.target;
+    if (!T) return;
+    const { rng } = this;
+    const w = (s / STEPS) ** 3;
+    for (let r = 0; r < this.n; r++) {
+      this.s.tech[r] += (T.tech[r] - this.s.tech[r]) * w;
+      if (s >= 10 && this.s.culture[r] !== T.culture[r] && rng.chance(0.5 * ((s - 10) / 10) ** 2)) {
+        this.s.culture[r] = T.culture[r];
+      }
+    }
+  }
+
+  milestones(Y) {
+    const lvl = Math.floor(this.techMax);
+    if (lvl <= this.milestone) return;
+    for (let k = this.milestone + 1; k <= lvl; k++) {
+      if (k <= Math.floor(this.pastMax)) continue;
+      let best = 0;
+      for (let r = 0; r < this.n; r++) if (this.s.tech[r] > this.s.tech[best]) best = r;
+      const texts = {
+        1: 'Farming villages appear around {r}.',
+        2: 'Copper-working chiefdoms arise in {r}.',
+        3: 'Bronze, writing and the first cities appear in {r}.',
+        4: 'Iron-working spreads out from {r}.',
+        5: 'A classical age of coinage, philosophy and great roads dawns in {r}.',
+        6: 'Agrarian states mature; {r} becomes a centre of learning and long-distance trade.',
+        7: 'Printing, gunpowder and ocean-going ships transform {r}.',
+        8: 'Industrialisation begins in {r}.',
+        9: '{r} enters the information age.',
+        10: '(Speculative) {r} becomes post-industrial.',
+        11: '(Speculative) Spaceports rise in {r}.',
+      };
+      if (texts[k]) this.ev(Y - this.rng.int(0, 49), 'tech', texts[k].replace('{r}', this.rname(best)));
+    }
+    this.milestone = lvl;
+  }
+
+  narrateInterval(Y, prev, prevMean) {
+    const { rng } = this;
+    const now = this.sizes();
+    for (const [o, c] of now) this.peak.set(o, Math.max(this.peak.get(o) || 0, c));
+    for (const [pid, size] of now) {
+      if (!this.isHome(pid) || this.pol(pid).earth) continue;
+      const before = prev.get(pid) || 0;
+      if (size >= 6 && size - before >= Math.max(4, before)) {
+        const p = this.pol(pid);
+        const c = this.world.cultures.get(p.culture);
+        const ruler = c && c.phon ? rulerName(c.phon, rng, Y, p.type) : 'a new dynasty';
+        this.ev(Y - rng.int(60, 240), 'war', `Under ${ruler}, ${this.pref(pid, Y)} conquers ${size - before} provinces.`, pid);
+      }
+      if (size >= 18 && before < 18) {
+        this.ev(Y - rng.int(0, 200), 'polity', `${this.pref(pid, Y, true)} becomes the dominant power of ${this.world.tileName(this.x, this.y)}.`, pid);
+      }
+    }
+    const mean = this.tileMeanTech();
+    if (prevMean - mean > 0.35 && Y < 1900) {
+      this.ev(Y - rng.int(0, 200), 'disaster', `A dark age settles over ${this.world.tileName(this.x, this.y)}: cities shrink, trade routes fail and old learning is lost.`);
+    }
+  }
+
+  formBlocs() {
+    if (this.end <= 1950 || this.start >= 3000) return;
+    const { rng } = this;
+    const mem = this.members();
+    const cands = [...mem.keys()].filter((p) => this.isHome(p) && !this.pol(p).earth && this.meanTech(mem.get(p)) >= 8.3);
+    const byRoot = new Map();
+    for (const p of cands) {
+      const root = this.world.cultureRoot(this.pol(p).culture);
+      if (!byRoot.has(root)) byRoot.set(root, []);
+      byRoot.get(root).push(p);
+    }
+    for (const [root, list] of byRoot) {
+      if (list.length < 3 || !rng.chance(0.6)) continue;
+      const c = this.world.cultures.get(root);
+      const base = c ? c.name : 'Common';
+      const from = Math.max(this.start, 1950) + rng.int(0, 50);
+      const name = rng.pick([`${base} Union`, `${base} Community`, `Council of ${base} States`, `${base} Compact`]);
+      this.world.blocs.push({ id: this.world.id(), name, from, to: null, home: this.pos, members: list });
+      this.ev(from, 'polity', `${list.length} states found the ${name}.`);
+    }
+  }
+
+  // Drop the comings and goings of statelets that never amounted to anything.
+  pruneEvents() {
+    const peak = this.peak;
+    for (const [o, c] of this.sizes()) peak.set(o, Math.max(peak.get(o) || 0, c));
+    const evs = this.events.filter((e) => {
+      if (!e.pid || (e.kind !== 'polity' && e.kind !== 'war')) return true;
+      if (/independence|proclaims|Revolution|dominant|pushes in|foothold/.test(e.text)) return true;
+      const p = this.pol(e.pid);
+      const life = (p.ended ?? this.end) - (p.founded ?? this.start);
+      return (peak.get(e.pid) || 0) >= 4 || (life >= 400 && (peak.get(e.pid) || 0) >= 2);
+    });
+    evs.sort((a, b) => a.y - b.y);
+    return evs;
+  }
+}
+
+export { eraName, BIOME };

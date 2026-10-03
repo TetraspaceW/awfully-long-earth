@@ -1,0 +1,16 @@
+{
+  "name": "awfully-long-earth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Explore a Big Earth (100x the area, 20,000 extra years of history) tile by tile.",
+  "scripts": {
+    "build-earth": "node scripts/build-earth.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node test/smoke.mjs",
+    "serve": "npx --yes http-server -c-1 ."
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
