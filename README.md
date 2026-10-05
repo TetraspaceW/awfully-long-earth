@@ -200,7 +200,16 @@ and no humans.
   | Trichordates (whatever the Ediacaran biota were doing, it kept going) | 650 million |
   | Radiates (jellies and corals) | 680 million |
   | Another kingdom: mycelians, vegetals or protists | 2 billion |
-  | Another domain: prokaryotes | any depth |
+  | Archaeans | 2.7 billion |
+  | Bacterials | 3.8 billion (the last universal common ancestor) |
+  | A novel domain of life | possible for any divergence from before the eukaryotes (over 2 billion years) |
+
+  A *novel domain* is a branch of life that came off the prokaryotes after history
+  parted, so it has no counterpart in Terra's history. Each region has its own,
+  with a generated name such as *Heliomorpha*, and its own body plan: multicellular
+  (a nice multicellular boy), lattice-grown, swarm-colonial, or giant single cells.
+  For a divergence older than the last common ancestor, novel domains are all that
+  is left: life that began separately.
 
 Among the lineages available, the likeliest are the closest relatives, those that
 branched off just before the divergence. Lineages are sticky. Within a region about 1,000 sheets across,

@@ -89,7 +89,7 @@ function namePolity(world, rng, cultureId, type) {
 
 // A new people. Daughter languages keep their parent's species; a people arising
 // from scratch belongs to the lineage that became sapient where it arose.
-function newCulture(world, rng, { parent = 0, origin = null, home = null, species = 'human', pod = 0 } = {}) {
+function newCulture(world, rng, { parent = 0, origin = null, home = null, species = 'human', pod = 0, variant = 0 } = {}) {
   const par = parent ? world.cultures.get(parent) : null;
   const sp = par ? par.species || 'human' : species;
   const voice = sp === 'human' || sp === 'archaic' ? null : speciesInfo(sp).voice;
@@ -97,7 +97,7 @@ function newCulture(world, rng, { parent = 0, origin = null, home = null, specie
   const name = adjective(word(phon, rng, 2), phon, rng);
   const hue = par ? (par.hue + rng.range(-30, 30) + 360) % 360 : rng.int(0, 359);
   const rec = { name, adj: name, phon, hue: Math.round(hue), parent, origin, home };
-  if (sp !== 'human') { rec.species = sp; rec.pod = par ? par.pod : pod; }
+  if (sp !== 'human') { rec.species = sp; rec.pod = par ? par.pod : pod; rec.variant = par ? par.variant : variant; }
   return world.addCulture(rec);
 }
 

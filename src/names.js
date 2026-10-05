@@ -82,6 +82,8 @@ const VOICES = {
   radiate: { on: 'm n l y h ny', vo: 'u o a uu oo', co: 'm n', ends: 'umu ola alu oom' },
   fungal: { on: 'sp m r s mr sk', vo: 'o y u oo', co: 'r m s', ends: 'ory omm usk yr' },
   prokaryote: { on: 'x q z k v qx', vo: 'a e y', co: 'x q z', ends: '-7 -3 ax yx -12' },
+  archaean: { on: 'm th h s sm thr', vo: 'e ei ae a', co: 'th m n', ends: 'eth ane ith -9' },
+  xeno: { on: 'v vr zh ql y yl ph', vo: 'oa ue ai y', co: 'l vr zh', ends: 'oal yr ue ixa' },
 };
 
 export function randomPhon(rng, voice = null) {

@@ -662,7 +662,7 @@ function speciesNote(x, y) {
     const dT = climateAt(x + 0.5, y + 0.5);
     if (dT <= -35 || dT >= 120) return '';
     const lin = lineageAt(state.world.seed, x + 0.5, y + 0.5);
-    sp = speciesInfo(lin.species, lin.pod);
+    sp = speciesInfo(lin.species, lin.pod, lin.variant);
   }
   if (sp.id === 'human') return '';
   const E = state.Y + eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);

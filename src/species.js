@@ -101,8 +101,19 @@ export const SPECIES = [
     blurb: '',   // filled in by eukaryoteKind()
   },
   {
-    id: 'prokaryote', branch: 3e9, weight: 0.6, name: 'Prokaryote', plural: 'prokaryotes', sci: 'Bacteria and Archaea', voice: 'prokaryote', hue: 0,
-    blurb: 'Civilisation from another domain of life: vast bacterial mats whose chemistry learned to think. A person is a quorum.',
+    id: 'archaean', branch: 2.7e9, weight: 0.8, name: 'Archaean', plural: 'archaeans', sci: 'Archaea', voice: 'archaean', hue: 345,
+    blurb: 'Another domain of life: our own ancestors\' cousins, the archaea. Born in hot springs and methane seeps, they think in slow chemical gradients and build where everyone else would boil.',
+  },
+  {
+    id: 'prokaryote', branch: 3.8e9, weight: 0.7, name: 'Bacterial', plural: 'bacterials', sci: 'Bacteria', voice: 'prokaryote', hue: 0,
+    blurb: 'Another domain of life: vast bacterial mats whose chemistry learned to think. A person is a quorum.',
+  },
+  {
+    // a domain that branched off the prokaryotes after history parted, and so has
+    // no counterpart in Terra's history; possible for any divergence from before
+    // the eukaryotes, and the only life left past the last common ancestor
+    id: 'novel', branch: 2e9, opensAt: 2e9, weight: 1.4, name: 'Novel domain', plural: 'novel-domain life', sci: '', voice: 'xeno', hue: 265,
+    blurb: '',   // filled in by novelKind()
   },
 ];
 export const SPECIES_BY_ID = new Map(SPECIES.map((s) => [s.id, s]));
@@ -123,16 +134,41 @@ function eukaryoteKind(pod) {
 }
 
 // The species as seen at a point of divergence, with any variant filled in.
-export function speciesInfo(id, pod = 0) {
+// A domain of life Terra never had: named and shaped per region (variant in [0, 1)).
+const NOVEL_HEAD = ['Allo', 'Xeno', 'Crypto', 'Helio', 'Litho', 'Chromo', 'Neo', 'Plexo', 'Thalasso', 'Aero'];
+const NOVEL_TAIL = ['karya', 'phyta', 'zoa', 'thrix', 'blasta', 'cyta', 'morpha', 'coela'];
+function novelKind(pod, variant) {
+  const v = hashN(Math.floor(variant * 4294967296), 'novel');
+  const sci = NOVEL_HEAD[v % NOVEL_HEAD.length] + NOVEL_TAIL[Math.floor(v / 16) % NOVEL_TAIL.length];
+  const name = /a$/.test(sci) ? `${sci}n` : `${sci}ian`;
+  const separate = pod > 3.8e9;
+  const origin = separate
+    ? 'Life here never shared Terra\'s last universal common ancestor: it began separately, with a chemistry of its own.'
+    : 'A domain of life Terra never had, branching off the prokaryotes after history parted here.';
+  const forms = [
+    ' And it went multicellular: tissue-built bodies, hands of a sort, and a fondness for being patted.',
+    ' Multicellular, but not as Terra knows it: bodies grown as lattices, every cell a citizen.',
+    ' It never quite chose between cell and colony: people assemble from swarms and disperse again at night.',
+    ' Giant single cells, metres across, with organelles where we have organs.',
+  ];
+  const form = forms[Math.floor(v / 256) % forms.length];
+  return { name, plural: `${name}s`, sci, blurb: origin + form };
+}
+
+// The species as seen at a point of divergence, with any variant filled in.
+export function speciesInfo(id, pod = 0, variant = 0) {
   const s = SPECIES_BY_ID.get(id) || SPECIES[0];
   if (id === 'mammal') return { ...s, ...mammalKind(pod) };
   if (id === 'eukaryote') return { ...s, ...eukaryoteKind(pod) };
+  if (id === 'novel') return { ...s, ...novelKind(pod, variant) };
   return s;
 }
 
 // Lineages possible at a point of divergence: those that had already branched
 // off from ours by then. Before 2.5 million years ago only other hominids, after
-// it only other branches of life; prokaryotes remain however deep it goes.
+// it only other branches of life. Before the eukaryotes, a novel domain of life
+// can branch off the prokaryotes too, and past the last common ancestor it is
+// all that is left.
 // Weighted towards the closest relatives (those that branched off just before).
 export function availableSpecies(pod) {
   if (pod < 3e5) return [[SPECIES[0], 1]];
@@ -141,7 +177,7 @@ export function availableSpecies(pod) {
     if (s.id === 'human') continue;
     const hominid = s.branch <= 2.5e6;
     if (hominid !== pod < 2.5e6) continue;
-    if (s.branch < pod && s.id !== 'prokaryote') continue;
+    if (s.opensAt ? pod < s.opensAt : s.branch < pod) continue;
     out.push([s, s.weight * Math.sqrt(pod / s.branch)]);
   }
   return out;
@@ -186,7 +222,7 @@ export function lineageAt(seed, gx, gy) {
       const key = Math.pow(u01(seed, 'lineage', sp.id, region) || 1e-12, 1 / fixedWeight(sp));
       if (key > top) { top = key; id = sp.id; }
     }
-    v = { species: id, pod };
+    v = { species: id, pod, variant: u01(seed, 'novel', region) };
   }
   if (memo.size > 50000) memo.clear();
   memo.set(key, v);
@@ -195,7 +231,7 @@ export function lineageAt(seed, gx, gy) {
 export function speciesAt(seed, gx, gy) { return lineageAt(seed, gx, gy).species; }
 
 // The species of a people (as recorded when it arose), with its variant.
-export function cultureSpecies(cu) { return speciesInfo(cu && cu.species ? cu.species : 'human', cu && cu.pod ? cu.pod : 0); }
+export function cultureSpecies(cu) { return speciesInfo(cu && cu.species ? cu.species : 'human', cu && cu.pod ? cu.pod : 0, cu && cu.variant ? cu.variant : 0); }
 
 // Re-derive the species of non-human peoples in a loaded world from their home
 // sheets, so worlds saved under earlier species rules follow the current ones.
@@ -208,11 +244,11 @@ export function refreshSpecies(world) {
     const par = cu.parent ? world.cultures.get(cu.parent) : null;
     if (par && (par.species || cu.species)) {
       const sp = fix(par);
-      if (sp) { cu.species = sp; cu.pod = par.pod; } else { delete cu.species; delete cu.pod; }
+      if (sp) { cu.species = sp; cu.pod = par.pod; cu.variant = par.variant; } else { delete cu.species; delete cu.pod; delete cu.variant; }
     } else if (cu.species && typeof cu.home === 'string') {
       const [x, y] = cu.home.split(',').map(Number);
       const lin = lineageAt(world.seed, x + 0.5, y + 0.5);
-      if (lin.species === 'human') { delete cu.species; delete cu.pod; } else { cu.species = lin.species; cu.pod = lin.pod; }
+      if (lin.species === 'human') { delete cu.species; delete cu.pod; delete cu.variant; } else { cu.species = lin.species; cu.pod = lin.pod; cu.variant = lin.variant; }
     }
     done.set(cu.id, cu.species);
     return cu.species;

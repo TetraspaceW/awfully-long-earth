@@ -288,9 +288,13 @@ console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
   for (const pod of [3e6, 1.3e7, 1e8, 4e8, 7e8, 2e9, 1e10]) {
     const ids = availableSpecies(pod).map(([s]) => s.id);
     assert.ok(!ids.some((id) => ['neanderthal', 'denisovan', 'archaic', 'erectus', 'habiline', 'floresian'].includes(id)), `hominids at ${pod}`);
-    for (const [s] of availableSpecies(pod)) assert.ok(s.branch >= pod || s.id === 'prokaryote', `${s.id} available though it split off after the divergence`);
+    for (const [s] of availableSpecies(pod)) assert.ok(s.branch >= pod || s.id === 'novel', `${s.id} available though it split off after the divergence`);
   }
-  assert.deepEqual(availableSpecies(1e10).map(([s]) => s.id), ['prokaryote']);
+  // before the eukaryotes: bacteria, archaea, or a domain Terra never had; past
+  // the last common ancestor, only the last
+  assert.deepEqual(availableSpecies(2.2e9).map(([s]) => s.id).sort(), ['archaean', 'novel', 'prokaryote']);
+  assert.ok(!availableSpecies(1.5e9).some(([s]) => s.id === 'novel'), 'novel domains need a divergence from before the eukaryotes');
+  assert.deepEqual(availableSpecies(1e10).map(([s]) => s.id), ['novel']);
   // lineages are sticky: far out, you travel a long way before the lineage changes
   const runs = [];
   for (let sd = 1; sd <= 6; sd++) for (let a = 0; a < 10; a++) {
