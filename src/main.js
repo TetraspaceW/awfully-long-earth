@@ -10,7 +10,7 @@ import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMon
 import { renderTile, polityCss, cultureCss, speciesCss, rampCss, clearColorCache, FOCUS_FADE, FOCUS_ALPHA } from './render.js';
 import { eraShift, divergence } from './macro.js';
 import { nationProfile } from './bio.js';
-import { lineageAt, speciesInfo, cultureSpecies } from './species.js';
+import { lineageAt, speciesInfo, cultureSpecies, refreshSpecies } from './species.js';
 
 const STORE = 'awfully-long-earth:climate-2000';
 // Big Earth is shown at a single moment, 2000 CE: the end of each sheet's
@@ -97,7 +97,9 @@ async function loadSaved() {
   try {
     const code = await storeLoad();
     if (!code) return null;
-    return World.deserialize(await gunzip(code));
+    const w = World.deserialize(await gunzip(code));
+    refreshSpecies(w);
+    return w;
   } catch (e) {
     return null;
   }
@@ -787,6 +789,7 @@ $('download').addEventListener('click', async () => {
 $('loadCode').addEventListener('click', async () => {
   try {
     const w = World.deserialize(await gunzip($('code').value.trim()));
+    refreshSpecies(w);
     await adopt(w);
     $('dlg').hidden = true; toast('World loaded');
   } catch (e) { $('dlgMsg').textContent = 'That code could not be read. Paste the whole code, starting with gz:'; }

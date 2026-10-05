@@ -176,18 +176,22 @@ splintered, more or less dominated by states, and more boom-and-bust.
 
 ### Species
 
-The point of divergence also decides who the people are:
+The point of divergence also decides who the people are. A lineage is possible
+only if it had already branched off from ours when history diverged: it then
+existed as a line of its own. Anything that split from ours later never came to
+be. For a divergence 13 million years ago, for example, there are no Neanderthals,
+and no humans.
 
 - **Under 300,000 years:** humans.
-- **300,000 to 2.5 million years:** other hominids. These are archaic humans,
-  Neanderthals, Denisovans, Floresians, Erectines and Habilines, each available
-  once history diverged before its line branched off from ours.
-- **Over 2.5 million years:** other branches of the tree of life, each available
-  once history diverged before it branched off from our lineage:
+- **300,000 to 2.5 million years:** other hominids that already existed then.
+  These are archaic humans, Neanderthals, Denisovans, Floresians, Erectines and
+  Habilines, dropping out as the divergence passes their split from our line.
+- **Over 2.5 million years:** other branches of the tree of life, each possible
+  until the divergence predates its branch point:
 
-  | Lineage | Branched off |
+  | Lineage | Possible for divergences up to |
   |---|---|
-  | Mammals (apes, simians, placentals, marsupials or monotremes, by depth) | 2.5 million years |
+  | Mammals (apes, then simians, placentals, marsupials and monotremes: the closest relatives that had split off) | 180 million years |
   | Cetaceans (dolphin people; they are not to be trusted) | 90 million |
   | Reptilians, saurians (the asteroid missed) and avians | 320 million |
   | Amphibians | 352 million |
@@ -195,15 +199,15 @@ The point of divergence also decides who the people are:
   | Cephalopods, arthropods and insectoids | 600 million |
   | Trichordates (whatever the Ediacaran biota were doing, it kept going) | 650 million |
   | Radiates (jellies and corals) | 680 million |
-  | Another kingdom: mycelians, vegetals or protists | 1.2 billion |
-  | Another domain: prokaryotes | 3 billion |
+  | Another kingdom: mycelians, vegetals or protists | 2 billion |
+  | Another domain: prokaryotes | any depth |
 
-Among the lineages available, the likeliest are those that branched off close to
-the divergence. Lineages are sticky. Within a region about 1,000 sheets across,
+Among the lineages available, the likeliest are the closest relatives, those that
+branched off just before the divergence. Lineages are sticky. Within a region about 1,000 sheets across,
 each lineage has a fixed random priority, and the highest-priority lineage that
-is available wins. When deeper divergence unlocks a new lineage, it takes over
-only if it outranks the one already there, so the odds stay the same while a
-lineage, once reached, typically holds for 75–200 sheets of travel or more. That
+is available wins. As divergence deepens and rules lineages out, the next in rank
+takes over, so the odds stay the same while a lineage, once reached, holds until
+the divergence rules it out or the region ends. That
 is like the 300 sheets it takes to leave Terra's humans behind. Each people
 records the species of the place it arose and keeps it as it spreads, so
 lineages can meet and mix at realm edges. Non-human peoples have their own sound

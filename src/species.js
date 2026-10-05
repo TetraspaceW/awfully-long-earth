@@ -1,21 +1,23 @@
 // Who the people are. A world's point of divergence decides which lineages
 // could have become its sapient one. Diverge less than 300,000 years ago and
 // it is still us. Earlier, other hominids. Before 2.5 million years ago, other
-// branches of the tree of life entirely: each clade is characterised by where
-// it branched off from our lineage, and is available once history diverged
-// before that branch. The deeper the divergence, the more likely the sapient
-// lineage branched off near it.
+// branches of the tree of life entirely. Each clade is characterised by when it
+// branched off from our lineage, and is possible only if it had already branched
+// off when history diverged: it then existed as a line of its own, while
+// anything that split from ours later (Neanderthals, for a divergence 13 million
+// years ago) never came to be. The likeliest lineages branched off just before
+// the divergence.
 //
 // A lineage, once reached, holds for a long way: it changes only when deeper
-// divergence unlocks a lineage that outranks it, or across regions about 1000
-// sheets wide.
+// divergence rules it out, or across regions about 1000 sheets wide.
 
 import { hashN } from './rng.js';
 import { divergence } from './macro.js';
 
 const u01 = (...k) => hashN(...k) / 4294967296;
 
-// branch: years since this lineage split from ours (when it becomes possible).
+// branch: years since this lineage split from ours; it is possible for any
+// divergence up to that (for mammals and other kingdoms, their deepest variant).
 // weight: relative likelihood among those available.
 export const SPECIES = [
   {
@@ -43,11 +45,11 @@ export const SPECIES = [
     blurb: 'Descendants of Homo erectus, the great walker. Their ancestors kept the same hand-axe for a million years; once they changed, they changed everything at once.',
   },
   {
-    id: 'habiline', branch: 2.4e6, weight: 0.9, name: 'Habiline', plural: 'Habilines', sci: 'Homo habilis', voice: 'small', hue: 85,
+    id: 'habiline', branch: 2.5e6, weight: 0.9, name: 'Habiline', plural: 'Habilines', sci: 'Homo habilis', voice: 'small', hue: 85,
     blurb: 'Long-armed and small-bodied, the "handy" hominids. They are still at home in trees, and their cities grow upwards.',
   },
   {
-    id: 'mammal', branch: 2.5e6, weight: 1.6, name: 'Mammal', plural: 'mammals', sci: 'Mammalia', voice: 'mammal', hue: 330,
+    id: 'mammal', branch: 1.8e8, weight: 2.5, name: 'Mammal', plural: 'mammals', sci: 'Mammalia', voice: 'mammal', hue: 330,
     blurb: '',   // filled in by mammalKind()
   },
   {
@@ -95,7 +97,7 @@ export const SPECIES = [
     blurb: 'Jelly- and coral-kin: colonies that became individuals, and individuals that still bud. A person here is partly a polity.',
   },
   {
-    id: 'eukaryote', branch: 1.2e9, weight: 0.8, name: 'Eukaryote', plural: 'eukaryotes', sci: 'Eukaryota', voice: 'fungal', hue: 120,
+    id: 'eukaryote', branch: 2e9, weight: 0.8, name: 'Eukaryote', plural: 'eukaryotes', sci: 'Eukaryota', voice: 'fungal', hue: 120,
     blurb: '',   // filled in by eukaryoteKind()
   },
   {
@@ -106,6 +108,7 @@ export const SPECIES = [
 export const SPECIES_BY_ID = new Map(SPECIES.map((s) => [s.id, s]));
 
 // mammals that diverged further back are less and less like us
+// the closest relatives still possible: those that had split off by the divergence
 function mammalKind(pod) {
   if (pod < 1.5e7) return { name: 'Ape', plural: 'apes', sci: 'Hominidae', blurb: 'Chimpanzee-, gorilla- or orangutan-kin who came down from the trees in our place.' };
   if (pod < 3.5e7) return { name: 'Simian', plural: 'simians', sci: 'Simiiformes', blurb: 'Monkey people, tail and all: quick, social and loud.' };
@@ -114,8 +117,8 @@ function mammalKind(pod) {
   return { name: 'Monotreme', plural: 'monotremes', sci: 'Monotremata', blurb: 'Egg-laying mammals, venom-spurred, sensing the world by electricity.' };
 }
 function eukaryoteKind(pod) {
-  if (pod < 1.5e9) return { name: 'Mycelian', plural: 'mycelians', sci: 'Fungi', blurb: 'A different kingdom: fungal minds woven through the soil, fruiting into bodies when they need hands.' };
-  if (pod < 1.8e9) return { name: 'Vegetal', plural: 'vegetals', sci: 'Plantae', blurb: 'A different kingdom: plants that learned to move, slowly and then all at once.' };
+  if (pod < 1.1e9) return { name: 'Mycelian', plural: 'mycelians', sci: 'Fungi', blurb: 'A different kingdom: fungal minds woven through the soil, fruiting into bodies when they need hands.' };
+  if (pod < 1.5e9) return { name: 'Vegetal', plural: 'vegetals', sci: 'Plantae', blurb: 'A different kingdom: plants that learned to move, slowly and then all at once.' };
   return { name: 'Protist', plural: 'protists', sci: 'Protista', blurb: 'A different kingdom: giant amoeboid colonies that flow, merge and part.' };
 }
 
@@ -127,15 +130,19 @@ export function speciesInfo(id, pod = 0) {
   return s;
 }
 
-// Lineages possible at a point of divergence, weighted towards those that
-// branched off near it.
+// Lineages possible at a point of divergence: those that had already branched
+// off from ours by then. Before 2.5 million years ago only other hominids, after
+// it only other branches of life; prokaryotes remain however deep it goes.
+// Weighted towards the closest relatives (those that branched off just before).
 export function availableSpecies(pod) {
   if (pod < 3e5) return [[SPECIES[0], 1]];
   const out = [];
   for (const s of SPECIES) {
-    if (s.id === 'human' || s.branch > pod) continue;
-    if (pod < 2.5e6 && s.branch >= 2.5e6) continue;
-    out.push([s, s.weight * Math.sqrt(s.branch / pod)]);
+    if (s.id === 'human') continue;
+    const hominid = s.branch <= 2.5e6;
+    if (hominid !== pod < 2.5e6) continue;
+    if (s.branch < pod && s.id !== 'prokaryote') continue;
+    out.push([s, s.weight * Math.sqrt(pod / s.branch)]);
   }
   return out;
 }
@@ -143,10 +150,9 @@ export function availableSpecies(pod) {
 // Lineages are sticky. Within a region about 1000 sheets across, every lineage
 // gets a fixed random priority, weighted by its likelihood (weighted reservoir
 // sampling), and the highest-priority lineage available wins. As divergence
-// grows and unlocks deeper branches, a newcomer takes over only if it outranks
-// the incumbent, which happens with exactly its share of the odds, so the odds
-// match availableSpecies() while a lineage, once reached, holds until a deeper
-// one wins or the region ends. Like the 300 sheets it takes to leave Terra's
+// grows, lineages that split off too recently drop out and the next in rank takes
+// over, so the odds match availableSpecies() while a lineage, once reached,
+// holds until divergence rules it out or the region ends. Like the 300 sheets it takes to leave Terra's
 // humans behind, it takes a long way to leave any lineage.
 const REGION = 1000;
 function regionId(seed, gx, gy) {
@@ -160,9 +166,9 @@ function regionId(seed, gx, gy) {
   return id;
 }
 
-// availableSpecies() weights each lineage by weight * sqrt(branch / pod); the
+// availableSpecies() weights each lineage by weight * sqrt(pod / branch); the
 // pod cancels between lineages, so a fixed weight per lineage gives the same odds.
-const fixedWeight = (sp) => sp.weight * Math.sqrt(sp.branch);
+const fixedWeight = (sp) => sp.weight / Math.sqrt(sp.branch);
 
 // Which lineage became sapient at position (gx, gy), in sheet units, and the
 // divergence there (which picks a lineage's variant, such as which kind of mammal).
@@ -190,3 +196,26 @@ export function speciesAt(seed, gx, gy) { return lineageAt(seed, gx, gy).species
 
 // The species of a people (as recorded when it arose), with its variant.
 export function cultureSpecies(cu) { return speciesInfo(cu && cu.species ? cu.species : 'human', cu && cu.pod ? cu.pod : 0); }
+
+// Re-derive the species of non-human peoples in a loaded world from their home
+// sheets, so worlds saved under earlier species rules follow the current ones.
+// Daughter peoples take their parent's. Names keep the sounds they were made with.
+export function refreshSpecies(world) {
+  const done = new Map();
+  const fix = (cu) => {
+    if (done.has(cu.id)) return done.get(cu.id);
+    done.set(cu.id, cu.species);   // guards against cycles
+    const par = cu.parent ? world.cultures.get(cu.parent) : null;
+    if (par && (par.species || cu.species)) {
+      const sp = fix(par);
+      if (sp) { cu.species = sp; cu.pod = par.pod; } else { delete cu.species; delete cu.pod; }
+    } else if (cu.species && typeof cu.home === 'string') {
+      const [x, y] = cu.home.split(',').map(Number);
+      const lin = lineageAt(world.seed, x + 0.5, y + 0.5);
+      if (lin.species === 'human') { delete cu.species; delete cu.pod; } else { cu.species = lin.species; cu.pod = lin.pod; }
+    }
+    done.set(cu.id, cu.species);
+    return cu.species;
+  };
+  for (const cu of world.cultures.values()) fix(cu);
+}

@@ -276,18 +276,21 @@ console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
 }
 
 // species: humans near Terra; other hominids past 300,000 years of divergence;
-// other branches of the tree of life past 2.5 million, each only once history
-// diverged before it branched off from ours; peoples carry their species
+// other branches of the tree of life past 2.5 million, each only if it had
+// already branched off from ours when history diverged; peoples carry their species
 {
   const { availableSpecies, speciesAt, SPECIES_BY_ID } = await import('../src/species.js');
   for (const x of [1, -1, 3]) assert.equal(speciesAt(20000, x + 0.5, 0.5), 'human', 'Terra\'s neighbours are human');
   assert.deepEqual(availableSpecies(2e5).map(([s]) => s.id), ['human']);
   const mid = availableSpecies(1e6).map(([s]) => s.id);
-  assert.ok(mid.includes('neanderthal') && !mid.includes('mammal') && !mid.includes('human'), 'only other hominids at 1 million years');
-  for (const pod of [3e6, 1e8, 4e8, 7e8, 2e9, 1e10]) {
-    for (const [s] of availableSpecies(pod)) assert.ok(s.branch <= pod, `${s.id} available before it branched off`);
+  assert.ok(mid.includes('erectus') && !mid.includes('neanderthal') && !mid.includes('mammal') && !mid.includes('human'),
+    'at 1 million years: only hominids that had already split off (Erectines, not Neanderthals)');
+  for (const pod of [3e6, 1.3e7, 1e8, 4e8, 7e8, 2e9, 1e10]) {
+    const ids = availableSpecies(pod).map(([s]) => s.id);
+    assert.ok(!ids.some((id) => ['neanderthal', 'denisovan', 'archaic', 'erectus', 'habiline', 'floresian'].includes(id)), `hominids at ${pod}`);
+    for (const [s] of availableSpecies(pod)) assert.ok(s.branch >= pod || s.id === 'prokaryote', `${s.id} available though it split off after the divergence`);
   }
-  assert.ok(availableSpecies(1e10).some(([s]) => s.id === 'prokaryote') && !availableSpecies(1e9).some(([s]) => s.id === 'prokaryote'));
+  assert.deepEqual(availableSpecies(1e10).map(([s]) => s.id), ['prokaryote']);
   // lineages are sticky: far out, you travel a long way before the lineage changes
   const runs = [];
   for (let sd = 1; sd <= 6; sd++) for (let a = 0; a < 10; a++) {
