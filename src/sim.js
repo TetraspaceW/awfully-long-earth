@@ -23,7 +23,7 @@ import { Rng, hashN } from './rng.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord, rulerName } from './names.js';
 import { regionPower } from './stats.js';
 import { cloneSnap } from './world.js';
-import { speciesAt, speciesInfo } from './species.js';
+import { lineageAt, speciesInfo } from './species.js';
 import { divergence, humanPresence, development, targetStateShare, targetStateCount, federationAt, federationPolity, federationWorlds, effectiveYear, regionPos, sheetCentre } from './macro.js';
 
 const DIR_NAME = { E: 'east', W: 'west', N: 'north', S: 'south' };
@@ -181,8 +181,7 @@ class TileSim {
   cname(id) { return this.world.cultureName(id); }
   // the sapient lineage where province r lies, and how far back history parted there
   lineage(r) {
-    const [gx, gy] = this.rpos[r];
-    return { species: speciesAt(this.world.seed, gx, gy), pod: divergence(this.world.seed, gx, gy, 2000) };
+    return lineageAt(this.world.seed, ...this.rpos[r]);
   }
   isHome(pid) { const p = this.pol(pid); return p && p.capital && p.capital.x === this.x && p.capital.y === this.y; }
 

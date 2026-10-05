@@ -10,7 +10,7 @@ import { tileStateAt, players, worldPowers, regionPop, perCapita, fmtPop, fmtMon
 import { renderTile, polityCss, cultureCss, speciesCss, rampCss, clearColorCache, FOCUS_FADE, FOCUS_ALPHA } from './render.js';
 import { eraShift, divergence } from './macro.js';
 import { nationProfile } from './bio.js';
-import { speciesAt, speciesInfo, cultureSpecies } from './species.js';
+import { lineageAt, speciesInfo, cultureSpecies } from './species.js';
 
 const STORE = 'awfully-long-earth:climate-2000';
 // Big Earth is shown at a single moment, 2000 CE: the end of each sheet's
@@ -659,8 +659,8 @@ function speciesNote(x, y) {
     // nothing evolves sapience on a snowball or under a runaway greenhouse
     const dT = climateAt(x + 0.5, y + 0.5);
     if (dT <= -35 || dT >= 120) return '';
-    const id = speciesAt(state.world.seed, x + 0.5, y + 0.5);
-    sp = speciesInfo(id, divergence(state.world.seed, x + 0.5, y + 0.5, state.Y));
+    const lin = lineageAt(state.world.seed, x + 0.5, y + 0.5);
+    sp = speciesInfo(lin.species, lin.pod);
   }
   if (sp.id === 'human') return '';
   const E = state.Y + eraShift(state.world.seed, x + 0.5, y + 0.5, state.Y);

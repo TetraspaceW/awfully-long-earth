@@ -199,8 +199,12 @@ The point of divergence also decides who the people are:
   | Another domain: prokaryotes | 3 billion |
 
 Among the lineages available, the likeliest are those that branched off close to
-the divergence. The choice is made per *realm*, a jittered region about six
-sheets across, so neighbouring worlds mostly share a species. Each people
+the divergence. Lineages are sticky. Within a region about 1,000 sheets across,
+each lineage has a fixed random priority, and the highest-priority lineage that
+is available wins. When deeper divergence unlocks a new lineage, it takes over
+only if it outranks the one already there, so the odds stay the same while a
+lineage, once reached, typically holds for 75–200 sheets of travel or more. That
+is like the 300 sheets it takes to leave Terra's humans behind. Each people
 records the species of the place it arose and keeps it as it spreads, so
 lineages can meet and mix at realm edges. Non-human peoples have their own sound
 systems, so a cetacean language sounds like *K'iichoi* and a saurian one like

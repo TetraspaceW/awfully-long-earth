@@ -288,6 +288,19 @@ console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
     for (const [s] of availableSpecies(pod)) assert.ok(s.branch <= pod, `${s.id} available before it branched off`);
   }
   assert.ok(availableSpecies(1e10).some(([s]) => s.id === 'prokaryote') && !availableSpecies(1e9).some(([s]) => s.id === 'prokaryote'));
+  // lineages are sticky: far out, you travel a long way before the lineage changes
+  const runs = [];
+  for (let sd = 1; sd <= 6; sd++) for (let a = 0; a < 10; a++) {
+    const th = (a / 10) * 2 * Math.PI, dir = th + 1.3;
+    let gx = 3000 * Math.cos(th), gy = 3000 * Math.sin(th);
+    const first = speciesAt(sd, gx, gy);
+    let n = 0;
+    for (; n < 1500; n++) { gx += Math.cos(dir); gy += Math.sin(dir); if (speciesAt(sd, gx, gy) !== first) break; }
+    runs.push(n);
+  }
+  runs.sort((p, q) => p - q);
+  console.log(`species: median ${runs[30]} sheets of travel before the lineage changes, 3,000 sheets out`);
+  assert.ok(runs[30] >= 60, 'lineages reroll every few sheets');
   const far = new World(20000);
   buildEarth(far);
   const h = generateTile(far, -333, 170, 1);   // a world of dolphin people, for this seed

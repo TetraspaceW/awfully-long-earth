@@ -6,9 +6,9 @@
 // before that branch. The deeper the divergence, the more likely the sapient
 // lineage branched off near it.
 //
-// Lineages are chosen per "realm": jittered cells about six sheets across, each
-// with its own draw, so neighbouring worlds mostly share a species and the
-// species changes where realms meet or where divergence crosses a threshold.
+// A lineage, once reached, holds for a long way: it changes only when deeper
+// divergence unlocks a lineage that outranks it, or across regions about 1000
+// sheets wide.
 
 import { hashN } from './rng.js';
 import { divergence } from './macro.js';
@@ -140,36 +140,53 @@ export function availableSpecies(pod) {
   return out;
 }
 
-// The realm draw at a position: nearest jittered cell centre, six sheets apart.
-const REALM = 6;
-function realmDraw(seed, gx, gy) {
-  const cx = Math.floor(gx / REALM), cy = Math.floor(gy / REALM);
-  let best = Infinity, r = 0;
+// Lineages are sticky. Within a region about 1000 sheets across, every lineage
+// gets a fixed random priority, weighted by its likelihood (weighted reservoir
+// sampling), and the highest-priority lineage available wins. As divergence
+// grows and unlocks deeper branches, a newcomer takes over only if it outranks
+// the incumbent, which happens with exactly its share of the odds, so the odds
+// match availableSpecies() while a lineage, once reached, holds until a deeper
+// one wins or the region ends. Like the 300 sheets it takes to leave Terra's
+// humans behind, it takes a long way to leave any lineage.
+const REGION = 1000;
+function regionId(seed, gx, gy) {
+  const cx = Math.floor(gx / REGION), cy = Math.floor(gy / REGION);
+  let best = Infinity, id = '';
   for (let j = cy - 1; j <= cy + 1; j++) for (let i = cx - 1; i <= cx + 1; i++) {
-    const px = (i + u01(seed, 'realmx', i, j)) * REALM, py = (j + u01(seed, 'realmy', i, j)) * REALM;
+    const px = (i + u01(seed, 'regionx', i, j)) * REGION, py = (j + u01(seed, 'regiony', i, j)) * REGION;
     const d = (px - gx) ** 2 + (py - gy) ** 2;
-    if (d < best) { best = d; r = u01(seed, 'realm', i, j); }
+    if (d < best) { best = d; id = `${i},${j}`; }
   }
-  return r;
+  return id;
 }
 
-// Which lineage becomes sapient at position (gx, gy), in sheet units.
+// availableSpecies() weights each lineage by weight * sqrt(branch / pod); the
+// pod cancels between lineages, so a fixed weight per lineage gives the same odds.
+const fixedWeight = (sp) => sp.weight * Math.sqrt(sp.branch);
+
+// Which lineage became sapient at position (gx, gy), in sheet units, and the
+// divergence there (which picks a lineage's variant, such as which kind of mammal).
 const memo = new Map();
-export function speciesAt(seed, gx, gy) {
+export function lineageAt(seed, gx, gy) {
   const key = `${seed}|${gx}|${gy}`;
   let v = memo.get(key);
   if (v) return v;
   const pod = divergence(seed, gx, gy, 2000);
-  const avail = availableSpecies(pod);
-  let total = 0;
-  for (const [, w] of avail) total += w;
-  let x = realmDraw(seed, gx, gy) * total;
-  v = avail[avail.length - 1][0].id;
-  for (const [s, w] of avail) { x -= w; if (x < 0) { v = s.id; break; } }
+  if (pod < 3e5) v = { species: 'human', pod };
+  else {
+    const region = regionId(seed, gx, gy);
+    let id = 'archaic', top = -1;
+    for (const [sp] of availableSpecies(pod)) {
+      const key = Math.pow(u01(seed, 'lineage', sp.id, region) || 1e-12, 1 / fixedWeight(sp));
+      if (key > top) { top = key; id = sp.id; }
+    }
+    v = { species: id, pod };
+  }
   if (memo.size > 50000) memo.clear();
   memo.set(key, v);
   return v;
 }
+export function speciesAt(seed, gx, gy) { return lineageAt(seed, gx, gy).species; }
 
 // The species of a people (as recorded when it arose), with its variant.
 export function cultureSpecies(cu) { return speciesInfo(cu && cu.species ? cu.species : 'human', cu && cu.pod ? cu.pod : 0); }
