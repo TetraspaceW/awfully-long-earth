@@ -55,7 +55,7 @@ generation works and the extension points (map modes, events, saved game data).
   sheet's north, west, east and south neighbours, or take you to them.
 - **Map buttons**: **Terra** recentres on Earth; **All** fits every revealed sheet.
 - **Map modes**: states, peoples (language families, where related peoples share
-  hues), technology, population density, and terrain.
+  hues), species, technology, population density, and terrain.
 - **Panel**: the leading powers on the sheet and across all revealed Big Earth
   (blocs like the EU are counted as one player), the peoples living there, and
   "How this world came to be": the sheet's millennium of history up to 2000.
@@ -134,25 +134,111 @@ membership matches the macro layer whichever order the sheets were revealed in.
 
 ### Drift from Terra
 
-Terra is the one fixed point. Every other sheet is tied to it through chains of
-boundary conditions, and each link lets history wander a little. The macro layer
-therefore models history's drift from Terra's timeline as a smooth field
-**anchored at Terra**, with octaves 3 to 90 sheets across. Its statistics are the
-same everywhere, so every world, not just Terra, has neighbours within a few
-centuries of it and far-off worlds thousands of years away. This is the only way
-time enters Big Earth: a sheet's present can look like Terra's past or future.
+Terra is the one fixed point. Every other world has a **point of divergence**: how
+long ago its history parted from Terra's. A world runs ahead of or behind Terra's
+timeline by up to half that (see below). This is the only way time enters Big
+Earth: a sheet's present can look like Terra's past or future. Its technology,
+institutions, nation-state era, colonial window and federations all follow its own
+effective year, while sea level and ice follow real time.
 
-The main walk is an **era shift**: a place can run thousands of years ahead of or
-behind Terra's timeline. Its technology, institutions, nation-state era, colonial
-window and federations all follow its own effective year, while sea level and ice
-follow real time. Further walks make some far civilisations persistently unified
-or splintered, more or less dominated by states, and more boom-and-bust.
+Between neighbouring worlds the point of divergence swings by at most about
+max(1,000 years, 20% of itself) (`POD_SWING` in `src/macro.js`). Near Terra it grows
+by up to a millennium a sheet. Once it passes 5,000 years it grows geometrically, so
+the difference is arbitrary far enough out:
 
-As a result, Terra's neighbours in 2000 CE run within a few centuries of it. The
-drift keeps growing with distance: tens of sheets out, whole worlds run a millennium
-or more ahead or behind, and a hundred sheets out they can be thousands of years
-off, still in the Bronze Age or long past any world state Terra has seen. The
-panel shows how far each sheet's development runs ahead of or behind Terra's.
+| Distance | Typical point of divergence |
+|---|---|
+| 1 sheet | under a century |
+| 10 sheets | about 1,000 years |
+| 100 sheets | about 10,000 years (some over a million) |
+| 1,000 sheets | about 20 million years, sometimes far more than the age of the universe |
+| 100,000 sheets | around 10<sup>34</sup> years |
+
+This holds around every world, not just Terra: each has close neighbours and wildly
+different far-offs.
+
+How far ahead or behind a world runs is not simply half its divergence. Half the
+divergence is only the limit. A smooth field puts each world behind (four in five)
+or ahead (one in five), and the size of the gap on each side follows a
+**log-logistic distribution** (a power law), cut off at half the divergence. Near
+Terra the cutoff dominates, so its neighbours run within centuries of it. As the
+divergence grows the cutoff matters less, and in the limit the gap settles to a
+fixed shape:
+
+| Where a world sits, far from Terra | Share of worlds |
+|---|---|
+| Within 2,000 years ahead of Terra's era | 8% |
+| More than 10,000 years ahead | 4% |
+| Within 2,000 years behind | 8% |
+| 2,000 to 300,000 years behind: their own Stone Ages and early histories | 12% |
+| Before 300,000 BCE: no species there has become sapient yet | 60% |
+
+The share of pre-sapient worlds grows with distance from Terra: about 4% at 300
+sheets, a fifth at 1,000, two fifths at 10,000, heading for 60%. Far-future
+worlds stay rare throughout. Where a world sits in the distribution is a smooth
+field, so neighbours stay alike (`eraGap` in `src/macro.js`). Worlds far ahead stay
+at the top of the technology scale, and their federations rise and fall in cycles.
+The panel shows each sheet's divergence and how far it runs ahead or behind.
+
+The field is a pure function of position, so it does not depend on survey order. It
+is built from octaves of smooth noise 3, 9, 27, … sheets across, anchored at zero
+over Terra, with weights growing like a random walk's. There is no largest octave:
+at distance d from Terra, octaves up to about 300d sheets across take part, fading
+in smoothly, so the divergence never levels off. Further walks make some far civilisations persistently unified or
+splintered, more or less dominated by states, and more boom-and-bust.
+
+### Species
+
+The point of divergence also decides who the people are. A lineage is possible
+only if it had already branched off from ours when history diverged: it then
+existed as a line of its own. Anything that split from ours later never came to
+be. For a divergence 13 million years ago, for example, there are no Neanderthals,
+and no humans.
+
+- **Under 300,000 years:** humans.
+- **300,000 to 2.5 million years:** other hominids that already existed then.
+  These are archaic humans, Neanderthals, Denisovans, Floresians, Erectines and
+  Habilines, dropping out as the divergence passes their split from our line.
+- **Over 2.5 million years:** other branches of the tree of life, each possible
+  until the divergence predates its branch point:
+
+  | Lineage | Possible for divergences up to |
+  |---|---|
+  | Mammals (apes, then simians, placentals, marsupials and monotremes: the closest relatives that had split off) | 180 million years |
+  | Cetaceans (dolphin people; they are not to be trusted) | 90 million |
+  | Reptilians, saurians (the asteroid missed) and avians | 320 million |
+  | Amphibians | 352 million |
+  | Ichthyans (fish) | 435 million |
+  | Cephalopods, arthropods and insectoids | 600 million |
+  | Trichordates (whatever the Ediacaran biota were doing, it kept going) | 650 million |
+  | Radiates (jellies and corals) | 680 million |
+  | Another kingdom: mycelians, vegetals or protists | 2 billion |
+  | Archaeans | 2.7 billion |
+  | Bacterials | 3.8 billion (the last universal common ancestor) |
+  | A novel domain of life | possible for any divergence from before the eukaryotes (over 2 billion years) |
+
+  A *novel domain* is a branch of life that came off the prokaryotes after history
+  parted, so it has no counterpart in Terra's history. Each region has its own,
+  with a generated name such as *Heliomorpha*, and its own body plan: multicellular
+  (a nice multicellular boy), lattice-grown, swarm-colonial, or giant single cells.
+  For a divergence older than the last common ancestor, novel domains are all that
+  is left: life that began separately.
+
+Among the lineages available, the likeliest are the closest relatives, those that
+branched off just before the divergence. Lineages are sticky. Within a region about 1,000 sheets across,
+each lineage has a fixed random priority, and the highest-priority lineage that
+is available wins. As divergence deepens and rules lineages out, the next in rank
+takes over, so the odds stay the same while a lineage, once reached, holds until
+the divergence rules it out or the region ends. That
+is like the 300 sheets it takes to leave Terra's humans behind. Each people
+records the species of the place it arose and keeps it as it spreads, so
+lineages can meet and mix at realm edges. Non-human peoples have their own sound
+systems, so a cetacean language sounds like *K'iichoi* and a saurian one like
+*Zhaskaan*.
+
+Humans stay near Terra: other hominids appear a few hundred sheets out, and
+other branches of life about a thousand sheets out. Snowball and Venusian worlds
+have no sapient lineage. The **Species** map mode colours peoples by lineage.
 
 ### Climate
 

@@ -4,7 +4,7 @@
 import { formatYear } from '../core/frame.js';
 import { fmtMoney, fmtPop } from '../core/util.js';
 import { cultureCss, polityCss } from '../render.js';
-import { $, esc, signed, tick } from './app.js';
+import { $, esc, signed, speciesTag, tick } from './app.js';
 
 // The side panel: the selected state's profile (if any), the selected sheet,
 // and the leading powers of revealed Big Earth.
@@ -79,6 +79,7 @@ export function sheetHeader(app, x, y, st) {
     <h2>${esc(engine.sheetName(x, y))}</h2>
     <div class="meta">${chip}<span>2000 CE</span></div>
     ${climateNote(app, x, y)}
+    ${speciesNote(app, x, y)}
     ${driftNote(app, x, y)}
   </header>`;
 }
@@ -121,12 +122,31 @@ function climateNote(app, x, y) {
   return `<p class="climate"><b>${esc(name)}</b> climate, ${rel}.</p>`;
 }
 
-// How far this sheet's development has drifted from Terra's.
+// Which lineage became sapient on this sheet (nothing for Terra's humans).
+function speciesNote(app, x, y) {
+  const sp = app.engine.lineage(x, y, app.Y);
+  if (!sp) return '';
+  const lead = sp.notYet ? 'The lineage that will become sapient here' : 'The sapient lineage here';
+  return `<p class="climate">${lead}: <b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>). ${esc(sp.blurb)} <i>${esc(sp.habitat)}.</i></p>`;
+}
+
+// Spans of years, from "1,250" to "3.4 million" to "2.1 × 10^15".
+function spanYears(n) {
+  n = Math.abs(n);
+  if (n < 1e6) return (n < 10000 ? Math.round(n / 50) * 50 : Math.round(n / 1000) * 1000).toLocaleString('en-US');
+  if (n >= 1e15) { const e = Math.floor(Math.log10(n)); return `${(n / 10 ** e).toFixed(1)} × 10<sup>${e}</sup>`; }
+  const [d, w] = [[1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million']].find(([d]) => n >= d);
+  return `${(n / d).toFixed(n / d < 10 ? 1 : 0)} ${w}`;
+}
+
+// When this sheet's history parted from Terra's, and how far ahead or behind it runs.
 function driftNote(app, x, y) {
   const shift = app.engine.drift(x, y, app.Y);
   if (Math.abs(shift) < 150) return '';
-  const yrs = Math.abs(Math.round(shift / 50) * 50).toLocaleString('en-US');
-  return `<p class="drift">Its development runs about ${yrs} years ${shift > 0 ? 'ahead of' : 'behind'} Terra's.</p>`;
+  const pod = app.engine.divergence(x, y, app.Y);
+  const when = pod > 4.5e9 ? ' (before Terra itself formed)' : '';
+  const own = app.Y + shift < -300000 ? ' No sapient species has arisen here yet.' : '';
+  return `<p class="drift">Its history parted from Terra's about ${spanYears(pod)} years ago${when}, and it runs about ${spanYears(shift)} years ${shift > 0 ? 'ahead of' : 'behind'} Terra.${own}</p>`;
 }
 
 const worldsTag = (p) => (p.tiles && p.tiles.size > 1 ? ` <em>${p.tiles.size} worlds</em>` : '');
@@ -171,7 +191,7 @@ export function peoplesHere(app, x, y) {
   return `<section><h3>Peoples</h3><ul class="peoples">${list.map(([c, p]) => {
     const cu = world.cultures.get(c);
     const par = cu && cu.parent ? world.cultures.get(cu.parent) : null;
-    return `<li><span class="sw" style="background:${cultureCss(world, c)}"></span><span class="pn">${esc(cu ? cu.name : '?')}${par ? ` <em>from ${esc(par.name)}</em>` : ''}</span><span class="num">${Math.round((100 * p) / tot)}%</span></li>`;
+    return `<li><span class="sw" style="background:${cultureCss(world, c)}"></span><span class="pn">${esc(cu ? cu.name : '?')}${speciesTag(app, c)}${par ? ` <em>from ${esc(par.name)}</em>` : ''}</span><span class="num">${Math.round((100 * p) / tot)}%</span></li>`;
   }).join('')}</ul></section>`;
 }
 
@@ -224,7 +244,10 @@ export function nationCard(app, pid) {
     <p class="prose">${esc(b.government)}${b.alive && !b.p.macro && !b.p.earth ? ` It is led by ${esc(b.ruler)}.` : ''}</p>
     ${b.alive ? `<h3>What it can do</h3><p class="prose">${esc(b.life)}</p>` : ''}
     ${b.peoples.length ? `<h3>Peoples</h3><ul class="peoples">${b.peoples.map((c) => `
-      <li><span class="sw" style="background:${cultureCss(world, c.id)}"></span><span class="pn">${esc(c.name)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
+      <li><span class="sw" style="background:${cultureCss(world, c.id)}"></span><span class="pn">${esc(c.name)}${speciesTag(app, c.id)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
+    ${b.species.length && !(b.species.length === 1 && b.species[0].id === 'human') ? `<h3>Who they are</h3>
+      <p class="prose">${b.species.map((sp) => `${b.species.length > 1 ? `${Math.round(100 * sp.share)}% ` : ''}<b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>)`).join(', ')}. ${esc(b.species[0].blurb)}</p>
+      <p class="fine">Where they thrive: ${esc(b.species[0].habitat)}.</p>` : ''}
     <h3>Backstory</h3>
     <p class="prose">${esc(b.origin)}${b.parent ? ` It grew out of ${link(b.parent)}.` : ''}</p>
     ${also.length ? `<p class="fine">Also known as ${also.map(esc).join(', ')}.</p>` : ''}

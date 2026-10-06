@@ -14,6 +14,7 @@
 import { H, W } from './core/frame.js';
 import { BIOME, HAB, cellBiome, cellTemp, seaState } from './geo/index.js';
 import { density } from './world/stats.js';
+import { cultureSpecies } from './species.js';
 
 // Colours: biomes, the technology/density ramp, and per-world colours for
 // states and peoples.
@@ -75,6 +76,18 @@ export function cultureRgb(world, id) {
   }
   return c;
 }
+// Species colours: humans a muted slate so every other lineage stands out.
+export function speciesRgb(world, cid) {
+  const cache = cacheOf(world), k = `s${cid}`;
+  let c = cache.get(k);
+  if (!c) {
+    const sp = cultureSpecies(world.cultures.get(cid));
+    c = sp.id === 'human' ? [120, 130, 150] : hsl(sp.hue, 70, 52);
+    cache.set(k, c);
+  }
+  return c;
+}
+export function speciesCss(world, cid) { return rgbCss(speciesRgb(world, cid)); }
 export function polityCss(world, id) { return rgbCss(polityRgb(world, id)); }
 export function cultureCss(world, id) { return rgbCss(cultureRgb(world, id)); }
 export function clearColorCache(world) { if (world) caches.delete(world); }
@@ -104,12 +117,10 @@ export function mapModes() { return [...modes.values()]; }
 registerMapMode({
   id: 'political', label: 'States',
   legend: { kind: 'text', text: 'States; grey land is stateless' },
-  paint(rgb, { world, snap, r, focus }) {
+  paint(rgb, { world, snap, r }) {
     const o = snap.owner[r];
     if (o) rgb = mix(rgb, polityRgb(world, o), 0.78);
     else rgb = mix(rgb, GREY, snap.culture[r] ? 0.55 : 0.2);
-    // a selected nation stands out; everyone else fades back
-    if (focus && o !== focus) rgb = mix(rgb, [110, 112, 116], 0.6);
     return rgb;
   },
   border: (snap, r) => snap.owner[r],
@@ -123,6 +134,15 @@ registerMapMode({
     return c ? mix(rgb, cultureRgb(world, c), 0.8) : mix(rgb, GREY, 0.3);
   },
   border: (snap, r) => snap.culture[r],
+});
+
+registerMapMode({
+  id: 'species', label: 'Species',
+  legend: { kind: 'text', text: 'Sapient species; humans in slate' },
+  paint(rgb, { world, snap, r }) {
+    const c = snap.culture[r];
+    return c ? mix(rgb, speciesRgb(world, c), 0.85) : mix(rgb, GREY, 0.3);
+  },
 });
 
 registerMapMode({
@@ -146,6 +166,11 @@ registerMapMode({
   id: 'terrain', label: 'Terrain',
   legend: { kind: 'text', text: 'Climate and terrain at this date' },
 });
+
+// A selected nation stands out; everything else, sea included, fades towards
+// this colour by this much. A sheet the nation does not touch fades uniformly,
+// so a viewer can draw its usual image under a translucent overlay instead.
+export const FOCUS_FADE = [110, 112, 116], FOCUS_ALPHA = 0.6;
 
 // Turns a sheet's state at one snapshot into a W x H RGBA image for one map
 // mode. Headless: returns pixels, so it runs in a worker or in Node too.
@@ -208,6 +233,7 @@ export function rasterTile(world, x, y, snap, Y, modeId, { focus = 0, out } = {}
           if (v && (right !== v || down !== v)) rgb = rgb.map((c) => c * 0.45);
         }
       }
+      if (focus && !(b !== BIOME.OCEAN && region[k] >= 0 && snap && snap.owner[region[k]] === focus)) rgb = mix(rgb, FOCUS_FADE, FOCUS_ALPHA);
       d[k * 4] = rgb[0]; d[k * 4 + 1] = rgb[1]; d[k * 4 + 2] = rgb[2]; d[k * 4 + 3] = 255;
     }
   }

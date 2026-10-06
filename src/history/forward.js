@@ -149,14 +149,14 @@ function startingPeoples(run, rng) {
   rng.shuffle(land);
   for (const r of land.slice(0, k)) {
     if (culture[r]) continue;
-    culture[r] = newCulture(run.world, rng, { origin: null, home: run.pos });
+    culture[r] = newCulture(run.world, rng, { origin: null, home: run.pos, ...run.lineage(r) });
     order.push(r);
   }
   run.floodFill(culture, order, ok, rng);
   // stragglers on unreachable islands get their own peoples
   for (const r of land) {
     if (culture[r]) continue;
-    culture[r] = newCulture(run.world, rng, { origin: null, home: run.pos });
+    culture[r] = newCulture(run.world, rng, { origin: null, home: run.pos, ...run.lineage(r) });
     run.floodFill(culture, [r], ok, rng);
   }
   for (let r = 0; r < n; r++) if (!culture[r]) tech[r] = 0;

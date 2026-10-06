@@ -22,7 +22,8 @@ import { DIR_ORDER, neighbourPos, regionPos, sheetCentre, techCap, tileStart, TI
 import { clamp } from '../core/util.js';
 import { Rng, hashN } from '../core/random.js';
 import { regionCapacity, edgeLinks } from '../geo/index.js';
-import { effectiveYear, development, targetStateCount, targetStateShare } from '../macro.js';
+import { effectiveYear, humanPresence, development, targetStateCount, targetStateShare } from '../macro.js';
+import { habitatFactor, lineageAt } from '../species.js';
 import { regionPower } from '../world/stats.js';
 import { namePolity } from './naming.js';
 import { Chronicle } from './chronicle.js';
@@ -46,9 +47,9 @@ export class SheetRun {
     // each province's persistent institutional quality, and its position in sheet units
     this.inst = Float32Array.from(this.R, (r) => 0.4 + 1.2 * (hashN(world.seed, 'inst', x, y, r.id) / 4294967296));
     this.rpos = this.R.map((reg) => regionPos(x, y, reg));
+    // land the local lineage can use, relative to a typical sheet
     let hab = 0;
-    for (const r of this.R) if (regionCapacity(r, 2000) >= 0.3) hab++;
-    // habitable land relative to a typical sheet
+    for (let r = 0; r < this.n; r++) if (regionCapacity(this.R[r], 2000) * habitatFactor(this.R[r], this.lineage(r)) >= 0.3) hab++;
     this.sizeFactor = Math.max(0.05, hab / 200);
 
     // neighbouring sheets' tiles, already revealed. ext[r] lists the provinces
@@ -117,7 +118,19 @@ export class SheetRun {
 
   Er(r, Y) { return this.perRegion(Y).E[r]; }
 
-  cap(r, Y) { return regionCapacity(this.R[r], Y); }
+  // How many people province r can hold in year Y. The land suits each lineage
+  // differently (species.js habitats): the people living there, or the local
+  // lineage where no one does yet; and no one lives where it is not yet sapient.
+  cap(r, Y) { return regionCapacity(this.R[r], Y) * habitatFactor(this.R[r], this.people(r)) * humanPresence(this.Er(r, Y)); }
+
+  // the people in province r (a culture record), or the local lineage if none
+  people(r) {
+    const c = this.snap && this.snap.culture[r];
+    return c ? this.world.cultures.get(c) : this.lineage(r);
+  }
+
+  // the sapient lineage where province r lies, and how far back history parted there
+  lineage(r) { return lineageAt(this.world.seed, ...this.rpos[r]); }
 
   habFactor(r, Y) {
     const reg = this.R[r];
@@ -179,7 +192,7 @@ export class SheetRun {
           const o = snap.owner[reg.id];
           if (!o) continue;
           const e = m.get(o) || { p: 0, c: 0 };
-          e.p += regionPower(reg, snap.tech[reg.id], Y); e.c++;
+          e.p += regionPower(reg, snap.tech[reg.id], Y, this.world.cultures.get(snap.culture[reg.id])); e.c++;
           m.set(o, e);
         }
         nb.pow[k] = m;
@@ -318,7 +331,7 @@ export class SheetRun {
     return w ? s / w : 0;
   }
 
-  power(r, Y) { return regionPower(this.R[r], this.snap.tech[r], Y); }
+  power(r, Y) { return regionPower(this.R[r], this.snap.tech[r], Y, this.people(r)); }
 
   // Share of state-ready land under states, and the effective number of states.
   measure(Y) {

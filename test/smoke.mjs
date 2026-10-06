@@ -9,7 +9,7 @@ import { edgeLinks } from '../src/geo/provinces.js';
 import { regionCapacity } from '../src/geo/climate.js';
 import { players, worldPowers } from '../src/world/stats.js';
 import { fmtPop, fmtMoney } from '../src/core/util.js';
-import { federationAt, eraShift, effectiveYear } from '../src/macro.js';
+import { federationAt, eraShift, effectiveYear, divergence, POD_SWING } from '../src/macro.js';
 import { nationProfile } from '../src/profile.js';
 import { techCap, neighbourPos, regionPos, PRESENT_LAYER as T } from '../src/core/frame.js';
 
@@ -97,13 +97,33 @@ for (const h of world.tiles.values()) {
     for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) near = Math.max(near, Math.abs(eraShift(sd, x + 0.5, y + 0.5, 2000)));
     for (let y = -60; y <= 60; y += 6) for (let x = -60; x <= 60; x += 6) if (techCap(effectiveYear(sd, x + 0.5, y + 0.5, 2000)) >= 10.5) farAhead++;
   }
-  let step = 0;
+  // every world's neighbours stay close, wherever it is, not just Terra's: the
+  // point of divergence swings by about max(1000 years, POD_SWING of itself)
+  let step = 0, far = 0;
   for (let sd = 1; sd <= 10; sd++) for (let i = 0; i < 60; i++) {
-    const x = ((i * 7919) % 400) - 200 + 0.5, y = ((i * 104729) % 400) - 200 + 0.5;
-    step = Math.max(step, Math.abs(eraShift(sd, x + 1, y, 2000) - eraShift(sd, x, y, 2000)), Math.abs(eraShift(sd, x, y + 1, 2000) - eraShift(sd, x, y, 2000)));
+    const x = ((i * 7919) % 2000) - 1000 + 0.5, y = ((i * 104729) % 2000) - 1000 + 0.5;
+    const P = divergence(sd, x, y, 2000);
+    far = Math.max(far, P);
+    for (const [qx, qy] of [[x + 1, y], [x, y + 1]]) step = Math.max(step, Math.abs(divergence(sd, qx, qy, 2000) - P) / Math.max(1000, POD_SWING * P));
   }
-  console.log(`drift: largest shift next to Terra ${near} years; largest step between neighbours anywhere ${step} years; sheets near 3000 CE technology (sampled to 60 sheets out, 40 seeds): ${farAhead}`);
-  assert.ok(step <= 600, 'far-off worlds differ wildly from their own neighbours');
+  console.log(`drift: largest shift next to Terra in 2000 CE ${near} years; largest divergence step between neighbours ${step.toFixed(2)} x max(1000 years, ${POD_SWING * 100}%); largest divergence sampled ${far.toExponential(1)} years; sheets near 3000 CE technology (sampled to 60 sheets out, 40 seeds): ${farAhead}`);
+  assert.ok(step <= 2, 'far-off worlds differ wildly from their own neighbours');
+  assert.ok(far > 1e6, 'divergence never gets arbitrary');
+  // no largest octave: it keeps growing far beyond the old 2,430-sheet scale
+  const at = (d) => { const v = []; for (let sd = 1; sd <= 10; sd++) for (let a = 0; a < 12; a++) v.push(divergence(sd, d * Math.cos(a / 2), d * Math.sin(a / 2), 2000)); return v.sort((p, q) => p - q)[60]; };
+  const d1 = at(10000), d2 = at(100000);
+  console.log(`divergence keeps growing: median ${d1.toExponential(1)} years at 10,000 sheets, ${d2.toExponential(1)} at 100,000`);
+  assert.ok(d2 > 1e6 * d1 && Number.isFinite(d2), 'divergence levels off far away');
+  // how far ahead or behind far worlds run: mostly near Terra's era or not yet
+  // sapient, rarely far in the future; pre-sapient worlds grow towards 60%
+  const { eraGap } = await import('../src/macro.js');
+  let pre = 0, farFuture = 0;
+  for (let i = 0; i < 10000; i++) { const g = eraGap((i + 0.5) / 10000, 1e300); if (g < -3e5) pre++; if (g > 1e4) farFuture++; }
+  console.log(`era gap in the limit: ${(pre / 100).toFixed(0)}% pre-sapient, ${(farFuture / 100).toFixed(0)}% over 10,000 years ahead`);
+  assert.ok(pre > 5000 && pre < 7000 && farFuture < 800, 'far worlds: a majority pre-sapient, few far-future');
+  let close = 0, n = 0;
+  for (let sd = 1; sd <= 10; sd++) for (const [x, y] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { n++; if (Math.abs(eraShift(sd, x + 0.5, y + 0.5, 2000)) < 500) close++; }
+  assert.equal(close, n, "Terra's neighbours run within centuries of it");
   assert.ok(near <= 500, 'Terra\'s neighbours drift too far');
   assert.ok(farAhead >= 1, 'no world anywhere runs far ahead of Terra');
 }
@@ -112,10 +132,10 @@ for (const h of world.tiles.values()) {
 // sheets join them, and every sheet agrees on membership whatever order the
 // sheets were revealed in.
 {
-  // in seed 20000, one federation's domain covers almost all of sheets
-  // (-24, -40) and (-23, -40), and part of (-24, -39)
-  const sheets = [[-24, -40], [-23, -40], [-24, -39]];
-  assert.ok(federationAt(20000, -23.5, -39.5, 2000), 'expected a federation at the test sheets');
+  // in seed 20000, one federation's domain covers all of sheets (13, -10) and
+  // (14, -10), and most of (13, -9)
+  const sheets = [[13, -10], [14, -10], [13, -9]];
+  assert.ok(federationAt(20000, 13.5, -9.5, 2000), 'expected a federation at the test sheets');
   const check = (w) => {
     for (const [x, y] of sheets) {
       const g = w.geo(x, y), sn = w.tile(x, y, T).snaps[4];
@@ -185,6 +205,75 @@ console.log(`Terra/east edge land links: ${edgeLinks(world.geo(0, 0), world.geo(
   assert.ok(same < a.elev.length / 2, 'sheets 10 apart are no longer the same sheet');
   const shifts = [[12, -6], [40, 0], [0, 80], [-150, 30]].map(([x, y]) => eraShift(far.seed, x + 0.5, y + 0.5, 2000));
   console.log(`endless plane: 18 far sheets generated; era shifts at 12/-6, 40/0, 0/80, -150/30: ${shifts.join(', ')}`);
+}
+
+// species: humans near Terra; other hominids past 300,000 years of divergence;
+// other branches of the tree of life past 2.5 million, each only if it had
+// already branched off from ours when history diverged; peoples carry their species
+{
+  const { availableSpecies, speciesAt, SPECIES_BY_ID } = await import('../src/species.js');
+  for (const x of [1, -1, 3]) assert.equal(speciesAt(20000, x + 0.5, 0.5), 'human', 'Terra\'s neighbours are human');
+  assert.deepEqual(availableSpecies(2e5).map(([s]) => s.id), ['human']);
+  const mid = availableSpecies(1e6).map(([s]) => s.id);
+  assert.ok(mid.includes('erectus') && !mid.includes('neanderthal') && !mid.includes('mammal') && !mid.includes('human'),
+    'at 1 million years: only hominids that had already split off (Erectines, not Neanderthals)');
+  for (const pod of [3e6, 1.3e7, 1e8, 4e8, 7e8, 2e9, 1e10]) {
+    const ids = availableSpecies(pod).map(([s]) => s.id);
+    assert.ok(!ids.some((id) => ['neanderthal', 'denisovan', 'archaic', 'erectus', 'habiline', 'floresian'].includes(id)), `hominids at ${pod}`);
+    for (const [s] of availableSpecies(pod)) assert.ok(s.branch >= pod || s.id === 'novel', `${s.id} available though it split off after the divergence`);
+  }
+  // before the eukaryotes: bacteria, archaea, or a domain Terra never had; past
+  // the last common ancestor, only the last
+  assert.deepEqual(availableSpecies(2.2e9).map(([s]) => s.id).sort(), ['archaean', 'novel', 'prokaryote']);
+  assert.ok(!availableSpecies(1.5e9).some(([s]) => s.id === 'novel'), 'novel domains need a divergence from before the eukaryotes');
+  assert.deepEqual(availableSpecies(1e10).map(([s]) => s.id), ['novel']);
+  // lineages are sticky: far out, you travel a long way before the lineage changes
+  const runs = [];
+  for (let sd = 1; sd <= 6; sd++) for (let a = 0; a < 10; a++) {
+    const th = (a / 10) * 2 * Math.PI, dir = th + 1.3;
+    let gx = 3000 * Math.cos(th), gy = 3000 * Math.sin(th);
+    const first = speciesAt(sd, gx, gy);
+    let n = 0;
+    for (; n < 1500; n++) { gx += Math.cos(dir); gy += Math.sin(dir); if (speciesAt(sd, gx, gy) !== first) break; }
+    runs.push(n);
+  }
+  runs.sort((p, q) => p - q);
+  console.log(`species: median ${runs[30]} sheets of travel before the lineage changes, 3,000 sheets out`);
+  assert.ok(runs[30] >= 60, 'lineages reroll every few sheets');
+  const far = new World(20000);
+  buildTerra(far);
+  const h = generateTile(far, -333, 170, 1);   // a world of dolphin people, for this seed
+  const sp = new Map();
+  for (const c of h.snaps[4].culture) if (c) { const k = far.cultures.get(c).species || 'human'; sp.set(k, (sp.get(k) || 0) + 1); }
+  const top = [...sp].sort((a, b) => b[1] - a[1])[0];
+  console.log(`species: a far world's peoples are ${[...sp].map(([k, n]) => `${k} ${n}`).join(', ')}`);
+  assert.ok(top && SPECIES_BY_ID.get(top[0]).branch >= 2.5e6, 'a deeply diverged world is not peopled by hominids');
+
+  // species keep to the country they like: a water-bound lineage's states hold
+  // coastal land, a warmth-loving one's shun the tundra
+  const { lineageAt, habitatOf } = await import('../src/species.js');
+  const { climateAt } = await import('../src/geo/index.js');
+  const want = new Set(['aquatic', 'warm']);
+  for (let rad = 300; rad < 5000 && want.size; rad += 41) for (let a = 0; a < 24 && want.size; a++) {
+    const x = Math.round(rad * Math.cos(a / 24 * 2 * Math.PI)), y = Math.round(rad * Math.sin(a / 24 * 2 * Math.PI));
+    const h = habitatOf(lineageAt(far.seed, x + 0.5, y + 0.5));
+    if (!want.has(h) || Math.abs(climateAt(far.seed, x + 0.5, y + 0.5)) > 12 || eraShift(far.seed, x + 0.5, y + 0.5, 2000) < -250000) continue;
+    want.delete(h);
+    const tile = generateTile(far, x, y, 1), geo = far.geo(x, y), snap = tile.snaps[4];
+    let land = 0, coast = 0, held = 0, heldCoast = 0, tundra = 0, heldTundra = 0;
+    for (const r of geo.regions) {
+      if (!r.cellsNow) continue;
+      land++; if (r.coastal) coast++; if (r.biome === 2) tundra++;
+      if (snap.owner[r.id]) { held++; if (r.coastal) heldCoast++; if (r.biome === 2) heldTundra++; }
+    }
+    if (h === 'aquatic') {
+      console.log(`species: aquatic world ${x},${y}: coastal share of land ${(coast / land).toFixed(2)}, of state-held land ${(heldCoast / held).toFixed(2)}`);
+      assert.ok(held && heldCoast / held > coast / land + 0.1, 'water-bound peoples should keep to the coasts');
+    } else {
+      console.log(`species: warm world ${x},${y}: tundra share of land ${(tundra / land).toFixed(2)}, of state-held land ${(heldTundra / Math.max(1, held)).toFixed(2)}`);
+      assert.ok(heldTundra / Math.max(1, held) <= tundra / land, 'warmth-loving peoples should shun the tundra');
+    }
+  }
 }
 
 // round trip

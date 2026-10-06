@@ -19,6 +19,7 @@ export function encodeWorld(world) {
   for (const h of world.tiles.values()) {
     tiles.push({
       x: h.x, y: h.y, t: h.t, order: h.order, events: h.events, fixed: !!h.fixed,
+      ...(h.sums ? { sums: h.sums } : {}),
       snaps: h.snaps.map((s) => ({ o: b64(s.owner), c: b64(s.culture), q: b64(quantTech(s.tech)) })),
     });
   }
@@ -40,6 +41,7 @@ export function decodeInto(world, d) {
   for (const t of d.tiles) {
     world.tiles.set(`${t.x},${t.y},${t.t}`, {
       x: t.x, y: t.y, t: t.t, order: t.order, events: t.events, fixed: t.fixed,
+      ...(t.sums ? { sums: t.sums } : {}),
       snaps: t.snaps.map((s) => ({
         owner: new Int32Array(unb64(s.o)), culture: new Int32Array(unb64(s.c)),
         tech: dequantTech(new Uint8Array(unb64(s.q))),

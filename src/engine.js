@@ -20,7 +20,8 @@ import { buildTerra } from './terra.js';
 import { canGenerate, generateTile, regionName, FORWARD_SYSTEMS } from './history/index.js';
 import { nationProfile } from './profile.js';
 import { BIOME, BIOME_NAMES, cellBiome, cellTemp, seaState, climateName, SEA_STATES } from './geo/index.js';
-import { eraShift, federationAt } from './macro.js';
+import { divergence, eraShift, federationAt } from './macro.js';
+import { cultureSpecies, habitatName, lineageAt, refreshSpecies, speciesInfo } from './species.js';
 import { rasterTile } from './render.js';
 
 // Terra's present-day neighbours, revealed in a new world.
@@ -48,7 +49,12 @@ export class BigEarth extends Emitter {
     return e;
   }
 
-  static load(json, opts) { return new BigEarth(World.deserialize(json), opts); }
+  static load(json, opts) {
+    const world = World.deserialize(json);
+    // worlds saved under earlier species rules follow the current ones
+    refreshSpecies(world);
+    return new BigEarth(world, opts);
+  }
 
   save() { return this.world.serialize(); }
 
@@ -123,7 +129,7 @@ export class BigEarth extends Emitter {
     Object.assign(out, {
       regionName: regionName(this.world, geo, r),
       owner: st.snap.owner[r], culture: st.snap.culture[r], tech, era: eraName(tech),
-      ...regionFigures(geo, reg, tech, Y),
+      ...regionFigures(geo, reg, tech, Y, undefined, this.world.cultures.get(st.snap.culture[r])),
     });
     return out;
   }
@@ -137,7 +143,7 @@ export class BigEarth extends Emitter {
     const base = { x, y, r, name: regionName(this.world, geo, r), region: reg };
     if (!st) return base;
     const tech = st.snap.tech[r];
-    return { ...base, owner: st.snap.owner[r], culture: st.snap.culture[r], tech, ...regionFigures(geo, reg, tech, Y) };
+    return { ...base, owner: st.snap.owner[r], culture: st.snap.culture[r], tech, ...regionFigures(geo, reg, tech, Y, undefined, this.world.cultures.get(st.snap.culture[r])) };
   }
 
   players(Y = this.year, only = null, n = 10) { return players(this.world, Y, only, n); }
@@ -157,6 +163,38 @@ export class BigEarth extends Emitter {
   }
   // Years this sheet's development runs ahead (+) or behind (-) Terra's.
   drift(x, y, Y = this.year) { return eraShift(this.seed, x + 0.5, y + 0.5, Y); }
+  // How long ago this sheet's history parted from Terra's.
+  divergence(x, y, Y = this.year) { return divergence(this.seed, x + 0.5, y + 0.5, Y); }
+
+  // The species (see species.js) of a people.
+  speciesOf(cid) { return cultureSpecies(this.world.cultures.get(cid)); }
+
+  // The sheet's sapient lineage: once revealed, that of most of its peoples;
+  // otherwise the one expected at its centre. `notYet` when the lineage has not
+  // become sapient by this year; null on a snowball or runaway-greenhouse world,
+  // where nothing does, and for Terra's own humans.
+  lineage(x, y, Y = this.year) {
+    const st = this.stateAt(x, y, Y);
+    let sp = null;
+    if (st) {
+      const count = new Map();
+      for (const c of st.snap.culture) {
+        if (!c) continue;
+        const s = this.speciesOf(c);
+        count.set(s.name, [s, (count.get(s.name)?.[1] || 0) + 1, habitatName(this.world.cultures.get(c))]);
+      }
+      const top = [...count.values()].sort((a, b) => b[1] - a[1])[0];
+      if (top) sp = { ...top[0], habitat: top[2] };
+    }
+    if (!sp) {
+      const { dT } = this.climate(x, y);
+      if (dT <= -35 || dT >= 120) return null;
+      const lin = lineageAt(this.seed, x + 0.5, y + 0.5);
+      sp = { ...speciesInfo(lin.species, lin.pod, lin.variant), habitat: habitatName(lin) };
+    }
+    if (sp.id === 'human') return null;
+    return { ...sp, notYet: Y + this.drift(x, y, Y) < -300000 };
+  }
   federation(gx, gy, Y = this.year) { return federationAt(this.seed, gx, gy, Y); }
 
   /** RGBA pixels of a sheet in a map mode (see render.js), or null if unrevealed. */

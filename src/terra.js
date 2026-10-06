@@ -32,6 +32,12 @@ export function buildTerra(world, warn = () => {}) {
   }
 
   // polities
+  // big countries split into several provinces, and not otherwise in the record:
+  // which province holds the capital, and when the present state began
+  const SPLIT_CAPITAL = {
+    USA: ['USA-NE', 1776], CHN: ['CHN-N', 1949], CAN: ['CAN-E', 1867], AUS: ['AUS-E', 1901], BRA: ['BRA-W', 1822],
+    ARG: ['ARG-N', 1816], IND: ['IND-N', 1947], IDN: ['IDN-JV', 1945], KAZ: ['KAZ-E', 1991], MEX: ['MEX-C', 1821],
+  };
   const sovName = new Map();
   for (const c of EARTH_GEO.countries) if (c.a3 === c.sov || !sovName.has(c.sov)) sovName.set(c.sov, c.name);
   const sovereigns = new Set(EARTH_GEO.countries.map((c) => c.sov));
@@ -39,11 +45,12 @@ export function buildTerra(world, warn = () => {}) {
     if (sov === 'ATA') continue;
     const def = EARTH_POLITIES[`c:${sov}`];
     const name = fullName(sovName.get(sov) || sov);
-    const capCode = def ? def[5] : [...byCode.keys()].find((k) => k.split('-')[0] === sov);
+    const split = SPLIT_CAPITAL[sov];
+    const capCode = def ? def[5] : split ? split[0] : [...byCode.keys()].find((k) => k.split('-')[0] === sov);
     const capRegion = byCode.get(capCode) || geo.regions.find((r) => countryOf(r.country)?.sov === sov);
     world.addPolity({
       key: `c:${sov}`, name, adj: name, culture: world.byKey(`e:${def ? def[1] : modernCultureOf(sov, byCode)}`) || 0,
-      type: MONARCHIES.has(sov) ? 'kingdom' : 'republic', founded: def ? def[3] : null, ended: null,
+      type: MONARCHIES.has(sov) ? 'kingdom' : 'republic', founded: def ? def[3] : split && !def ? split[1] : null, ended: null,
       capital: { x: 0, y: 0, r: capRegion ? capRegion.id : 0 }, home: '0,0', earth: true,
       color: colorFor(`c:${sov}`), agg: 1,
     });

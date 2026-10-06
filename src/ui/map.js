@@ -3,8 +3,16 @@
 
 import { H, W, tileKey } from '../core/frame.js';
 import { fmtPop } from '../core/util.js';
-import { cultureCss, polityCss } from '../render.js';
-import { $, cssVar as css, esc, signed } from './app.js';
+import { cultureCss, polityCss, FOCUS_FADE, FOCUS_ALPHA } from '../render.js';
+import { $, cssVar, esc, signed, speciesTag } from './app.js';
+
+// Theme colours, read once per frame rather than once per sheet.
+let cssMemo = new Map();
+function css(name) {
+  let v = cssMemo.get(name);
+  if (v === undefined) { v = cssVar(name); cssMemo.set(name, v); }
+  return v;
+}
 
 // The map camera: which part of Big Earth is on screen. Positions are in
 // sheet units; a sheet is drawn `scale` pixels wide and scale / 2 tall.
@@ -49,8 +57,13 @@ export function createMapView(app, canvas) {
   const ctx = canvas.getContext('2d');
   const { state, engine } = app;
   const cam = state.cam;
+  // Rendered sheets, least recently used first. Zoomed out, sheets are kept as
+  // small thumbnails (60 x 30), so thousands fit; full size only when close up.
   const imgCache = new Map();
+  const IMG_KEEP = 400, THUMB_KEEP = 6000;
+  let fullCount = 0;
   let dpr = 1;
+  let drawPending = 0;
 
   function resize() {
     const r = canvas.parentElement.getBoundingClientRect();
@@ -61,22 +74,57 @@ export function createMapView(app, canvas) {
     draw();
   }
 
-  function tileImage(x, y, st) {
-    const key = `${tileKey(x, y, st.hist.t)}|${app.Y}|${state.mode}|${state.nation}`;
+  function tileImage(x, y, st, small, budget, focus) {
+    const base = `${tileKey(x, y, st.hist.t)}|${app.Y}|${state.mode}|${focus}`;
+    const key = small ? `${base}|s` : base;
     let c = imgCache.get(key);
-    if (!c) {
-      if (imgCache.size > 300) imgCache.clear();
-      c = document.createElement('canvas');
-      c.width = W; c.height = H;
-      const px = engine.raster(x, y, state.mode, { Y: app.Y, focus: state.nation });
-      c.getContext('2d').putImageData(new ImageData(px, W, H), 0, 0);
-      imgCache.set(key, c);
+    if (c) { imgCache.delete(key); imgCache.set(key, c); return c; }
+    // a thumbnail can come from the full image if we still have it
+    const full = small ? imgCache.get(base) : null;
+    if (!full && budget.left() <= 0) return null;   // out of time this frame
+    let src = full;
+    if (!src) {
+      src = document.createElement('canvas');
+      src.width = W; src.height = H;
+      const px = engine.raster(x, y, state.mode, { Y: app.Y, focus });
+      src.getContext('2d').putImageData(new ImageData(px, W, H), 0, 0);
     }
+    if (small) {
+      c = document.createElement('canvas');
+      c.width = W / 4; c.height = H / 4;
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = true;
+      g.drawImage(src, 0, 0, c.width, c.height);
+    } else {
+      c = src;
+      fullCount++;
+    }
+    imgCache.set(key, c);
+    trimImages();
     return c;
   }
 
+  function trimImages() {
+    if (imgCache.size <= IMG_KEEP && fullCount <= IMG_KEEP) return;
+    for (const k of imgCache.keys()) {
+      const isFull = !k.endsWith('|s');
+      if (isFull && fullCount > IMG_KEEP) { imgCache.delete(k); fullCount--; }
+      else if (!isFull && imgCache.size - fullCount > THUMB_KEEP) imgCache.delete(k);
+      if (fullCount <= IMG_KEEP && imgCache.size - fullCount <= THUMB_KEEP) break;
+    }
+  }
+
+  function clearImages() { imgCache.clear(); fullCount = 0; }
+
   function draw() {
     if (!engine.world) return;
+    cssMemo = new Map();
+    cancelAnimationFrame(drawPending); drawPending = 0;
+    // sheets not yet rendered are drawn as they come, about 40 ms of work a
+    // frame, so a large world fills in instead of freezing the page
+    const t0 = performance.now();
+    const budget = { left: () => 40 - (performance.now() - t0) };
+    let missing = false;
     const { vw, vh } = cam;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = css('--sea-deep');
@@ -92,8 +140,24 @@ export function createMapView(app, canvas) {
         const [sx, sy] = cam.toScreen(x, y);
         const st = engine.stateAt(x, y, app.Y);
         if (st) {
-          ctx.drawImage(tileImage(x, y, st), sx, sy, s, th);
-          if (state.mode === 'political' && s > 260) labels.push(...polityLabels(x, y, st, sx, sy, s));
+          // only sheets the selected nation holds need a render of their own;
+          // the rest reuse their usual image under a uniform fade
+          const focus = state.mode === 'political' ? state.nation : 0;
+          const here = focus && st.snap.owner.includes(focus);
+          const img = tileImage(x, y, st, s * dpr < 90, budget, here ? focus : 0);
+          if (img) {
+            ctx.imageSmoothingEnabled = img.width < W;
+            ctx.drawImage(img, sx, sy, s, th);
+            ctx.imageSmoothingEnabled = false;
+            if (focus && !here) {
+              ctx.fillStyle = `rgba(${FOCUS_FADE.join(',')},${FOCUS_ALPHA})`;
+              ctx.fillRect(sx, sy, s, th);
+            }
+            if (state.mode === 'political' && s > 260) labels.push(...polityLabels(x, y, st, sx, sy, s));
+          } else {
+            missing = true;
+            ctx.fillStyle = css('--fog'); ctx.fillRect(sx, sy, s, th);
+          }
         } else {
           drawFog(x, y, sx, sy, s, th);
         }
@@ -110,6 +174,7 @@ export function createMapView(app, canvas) {
       ctx.fillText(lb.text, lb.x, lb.y);
       ctx.textAlign = 'left';
     }
+    if (missing) drawPending = requestAnimationFrame(draw);
   }
 
   // sheet frame & label
@@ -197,7 +262,7 @@ export function createMapView(app, canvas) {
   }
 
   app.bus.on('draw', draw);
-  app.bus.on('invalidate', () => imgCache.clear());
+  app.bus.on('invalidate', clearImages);
   window.addEventListener('resize', resize);
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', draw);
 
@@ -300,6 +365,6 @@ export function tooltipHtml(app, c) {
   const { owner: o, culture: cu } = info;
   return `<b>${esc(info.regionName)}</b>
         <span>${o ? `<i class="sw" style="background:${polityCss(world, o)}"></i>${esc(world.polityName(o, app.Y))}` : 'No state'}</span>
-        <span>${cu ? `<i class="sw" style="background:${cultureCss(world, cu)}"></i>${esc(world.cultureName(cu))}` : 'Uninhabited'}</span>
+        <span>${cu ? `<i class="sw" style="background:${cultureCss(world, cu)}"></i>${esc(world.cultureName(cu))}${speciesTag(app, cu)}` : 'Uninhabited'}</span>
         <span>${esc(info.biomeName)} · ${deg} · ${cu ? esc(info.era) : '—'}${cu ? ` · ${fmtPop(info.pop)} people` : ''}</span>`;
 }

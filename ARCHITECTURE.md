@@ -6,7 +6,7 @@ top. A game uses the engine the way the explorer does: through `BigEarth`
 
 ## Units
 
-The code is 13 units, each a file or a directory. Units are **deep**: few,
+The code is 14 units, each a file or a directory. Units are **deep**: few,
 with a small public surface and their workings private. A directory unit is
 imported only through its public entry files. `npm run check:layers` enforces
 this, along with which units may depend on which, no import cycles, and no
@@ -17,13 +17,14 @@ DOM outside `src/ui`.
 | `core/` | `frame.js`: grid, sheet coordinates, timeline, technology eras. `random.js`: hashes, seeded RNG, noise. `util.js`: maths, number formats, LRU, event emitter | all three | — |
 | `data/` | Natural Earth outlines (generated), Terra's hand-authored history, its language families | all | — |
 | `names.js` | Phonologies; place, people and ruler names | itself | core |
-| `macro.js` | The macro layer: drift from Terra, development, state-share and unity targets, territorial federations. Pure functions of (seed, position, year) | itself | core |
+| `macro.js` | The macro layer: point of divergence and drift from Terra, development, state-share and unity targets, territorial federations. Pure functions of (seed, position, year) | itself | core |
+| `species.js` | Which lineage became sapient where (from the point of divergence), and what each species is like | itself | core, macro |
 | `geo/` | Physical geography of a sheet, built and cached per seed by an `Atlas`. Private: `climate.js` (sea level, ice, climate field, biomes), `terrain.js`, `provinces.js`, `terra.js` (real Earth's sheet) | `index.js` | core, data |
 | `world/` | `world.js`: `World` (registries of peoples, states, blocs, generated tiles) and snapshots. `stats.js`: population, economy, queries. Private: `save.js` (the save format) | `world.js`, `stats.js` | core, geo, names, data |
-| `history/` | Sheet generation. Private: `kernel.js` (`SheetRun`), `chronicle.js`, the systems in `nature.js` and `politics.js`, `forward.js`, `naming.js` | `index.js` | core, geo, macro, world, names |
+| `history/` | Sheet generation. Private: `kernel.js` (`SheetRun`), `chronicle.js`, the systems in `nature.js` and `politics.js`, `forward.js`, `naming.js` | `index.js` | core, geo, macro, species, world, names |
 | `terra.js` | Writes Terra's 1–2000 CE record into a World | itself | core, geo, world, names, data |
-| `profile.js` | A state's profile: government, peoples, backstory | itself | core, macro, world, history, names |
-| `render.js` | Headless rasteriser, map-mode registry, palette | itself | core, geo, world |
+| `profile.js` | A state's profile: government, peoples, species, backstory | itself | core, macro, species, world, history, names |
+| `render.js` | Headless rasteriser, map-mode registry, palette | itself | core, geo, world, species |
 | `engine.js` | `BigEarth`: reveal, query, render, save, events | itself | all of the above |
 | `index.js` | The package's public API | itself | core, engine, render, world |
 | `ui/` | The explorer | `main.js` | core, engine, render |

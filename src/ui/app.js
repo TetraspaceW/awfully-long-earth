@@ -1,6 +1,7 @@
 // The explorer app's shared state, the bus its parts talk over, and DOM helpers.
 
 import { Emitter } from '../core/util.js';
+import { speciesCss } from '../render.js';
 
 // DOM helpers.
 
@@ -10,6 +11,12 @@ export const cssVar = (name) => getComputedStyle(document.documentElement).getPr
 export const tick = () => new Promise((r) => setTimeout(r, 0));
 export const signed = (n) => `${n >= 0 ? '+' : ''}${n}`;
 
+// " Neanderthal" after a people's name, unless they are human.
+export function speciesTag(app, cid) {
+  const sp = app.engine.speciesOf(cid);
+  return sp.id === 'human' ? '' : ` <em class="species" style="color:${speciesCss(app.world, cid)}">${esc(sp.name)}</em>`;
+}
+
 // The explorer app's shared state, and the bus its parts talk over.
 //
 // Parts (map, panel, legend, dialogs) get the app object and never import each
@@ -17,7 +24,7 @@ export const signed = (n) => `${n >= 0 ? '+' : ''}${n}`;
 // they listen on app.bus.
 //
 // Bus events: 'draw' (map needs redrawing), 'panel' (panel needs rerendering),
-// 'mode' (map mode changed), 'invalidate' (cached map images are stale),
+// 'mode' (map mode changed), 'invalidate' (cached map images are stale: a new world),
 // 'toast' (message), 'world' (a different world was adopted).
 
 
@@ -60,8 +67,8 @@ export function createApp(engine, cam) {
       app.refresh();
     },
   };
-  // anything that changes the world makes cached images stale
-  engine.on('reveal', () => bus.emit('invalidate'));
+  // a new world makes cached images stale; a reveal only adds a sheet (no
+  // other sheet's image changes), so nothing needs clearing
   engine.on('load', ({ world }) => { bus.emit('invalidate'); bus.emit('world', world); });
   return app;
 }

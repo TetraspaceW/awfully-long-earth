@@ -126,6 +126,42 @@ export async function gunzip(code) {
 export const worldCode = (world) => gzip(world.serialize());
 export async function worldFromCode(code) { return BigEarth.load(await gunzip(code)).world; }
 
+// The world is kept in IndexedDB, which holds far more than localStorage's few
+// megabytes; localStorage is only a fallback (and where older versions saved).
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('awfully-long-earth', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', mode);
+    const req = fn(tx.objectStore('kv'));
+    tx.oncomplete = () => { db.close(); resolve(req.result); };
+    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function storeSave(code) {
+  try {
+    await idbDo('readwrite', (st) => st.put(code, STORE));
+    try { localStorage.removeItem(STORE); } catch (e) { /* not available */ }
+  } catch (e) {
+    localStorage.setItem(STORE, code);
+  }
+}
+async function storeLoad() {
+  try {
+    const code = await idbDo('readonly', (st) => st.get(STORE));
+    if (code) return code;
+  } catch (e) { /* fall back to localStorage */ }
+  try { return localStorage.getItem(STORE); } catch (e) { return null; }
+}
+
 // Debounced autosave; onFail is called if the browser refuses to store it.
 export function autosaver(getWorld, onFail) {
   let timer = 0;
@@ -133,7 +169,7 @@ export function autosaver(getWorld, onFail) {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
-        localStorage.setItem(STORE, await worldCode(getWorld()));
+        await storeSave(await worldCode(getWorld()));
       } catch (e) {
         onFail(e);
       }
@@ -143,7 +179,7 @@ export function autosaver(getWorld, onFail) {
 
 export async function loadSaved() {
   try {
-    const code = localStorage.getItem(STORE);
+    const code = await storeLoad();
     if (!code) return null;
     return await worldFromCode(code);
   } catch (e) {

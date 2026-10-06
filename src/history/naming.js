@@ -2,6 +2,7 @@
 
 import { Rng, hashN } from '../core/random.js';
 import { randomPhon, mutatePhon, placeName, adjective, word, shortWord } from '../names.js';
+import { speciesInfo } from '../species.js';
 
 // Provinces off Terra are named from a phonology of their sheet; names are
 // cached on the region (a sheet is a pure function of the seed, so a rebuilt
@@ -42,12 +43,18 @@ export function namePolity(world, rng, cultureId, type) {
   return { name: rng.pick(forms[type] || forms.kingdom), adj, base };
 }
 
-export function newCulture(world, rng, { parent = 0, origin = null, home = null } = {}) {
+// A new people. Daughter languages keep their parent's species; a people arising
+// from scratch belongs to the lineage that became sapient where it arose.
+export function newCulture(world, rng, { parent = 0, origin = null, home = null, species = 'human', pod = 0, variant = 0 } = {}) {
   const par = parent ? world.cultures.get(parent) : null;
-  const phon = par && par.phon ? mutatePhon(par.phon, rng) : randomPhon(rng);
+  const sp = par ? par.species || 'human' : species;
+  const voice = sp === 'human' || sp === 'archaic' ? null : speciesInfo(sp).voice;
+  const phon = par && par.phon ? mutatePhon(par.phon, rng) : randomPhon(rng, voice);
   const name = adjective(word(phon, rng, 2), phon, rng);
   const hue = par ? (par.hue + rng.range(-30, 30) + 360) % 360 : rng.int(0, 359);
-  return world.addCulture({ name, adj: name, phon, hue: Math.round(hue), parent, origin, home });
+  const rec = { name, adj: name, phon, hue: Math.round(hue), parent, origin, home };
+  if (sp !== 'human') { rec.species = sp; rec.pod = par ? par.pod : pod; rec.variant = par ? par.variant : variant; }
+  return world.addCulture(rec);
 }
 
 // "Republic of France", "Republic of the United Kingdom"

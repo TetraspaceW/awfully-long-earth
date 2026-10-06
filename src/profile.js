@@ -6,14 +6,23 @@ import { Rng, hashN } from './core/random.js';
 import { regionName } from './history/index.js';
 import { placeName, randomPhon, rulerName, shortWord } from './names.js';
 import { federationAt, federationWorlds } from './macro.js';
+import { cultureSpecies, habitatName } from './species.js';
 import { perCapita, regionPop, tileStateAt } from './world/stats.js';
 
 
 
 // Every snapshot of every surveyed tile in which the state holds land.
+// Whether a state holds any land on a tile, at any snapshot. A cheap scan of the
+// owner arrays, so only the few tiles a state touches need their geography.
+function holds(h, pid) {
+  for (const sn of h.snaps) if (sn.owner.includes(pid)) return true;
+  return false;
+}
+
 function footprint(world, pid) {
   const byYear = new Map();
   for (const h of world.tiles.values()) {
+    if (!holds(h, pid)) continue;
     const geo = world.geo(h.x, h.y);
     h.snaps.forEach((sn, k) => {
       const Y = h.t * 1000 + k * 250;
@@ -21,7 +30,7 @@ function footprint(world, pid) {
       for (const r of geo.regions) {
         if (sn.owner[r.id] !== pid) continue;
         prov++;
-        pop += geo.earth && Y === 2000 && h.fixed ? r.realPop : regionPop(r, sn.tech[r.id], Y);
+        pop += geo.earth && Y === 2000 && h.fixed ? r.realPop : regionPop(r, sn.tech[r.id], Y, world.cultures.get(sn.culture[r.id]));
       }
       if (!prov) return;
       const key = `${Y}|${h.x},${h.y}`;
@@ -45,13 +54,13 @@ function present(world, pid, Y) {
     if (seen.has(pos)) continue;
     seen.add(pos);
     const st = tileStateAt(world, h.x, h.y, Y);
-    if (!st) continue;
+    if (!st || !st.snap.owner.includes(pid)) continue;
     const geo = world.geo(h.x, h.y);
     const real = geo.earth && Y === 2000 && st.hist.fixed;
     for (const r of geo.regions) {
       if (st.snap.owner[r.id] !== pid) continue;
       const tech = st.snap.tech[r.id];
-      const pop = real ? r.realPop : regionPop(r, tech, Y);
+      const pop = real ? r.realPop : regionPop(r, tech, Y, world.cultures.get(st.snap.culture[r.id]));
       out.prov++; out.pop += pop; out.gdp += real ? r.realGdp : pop * perCapita(tech);
       out.techSum += tech * pop;
       out.worlds.add(pos);
@@ -64,12 +73,12 @@ function present(world, pid, Y) {
 }
 
 function eventsAbout(world, p) {
-  const names = new Set([p.name, ...(p.names || []).map(([, n]) => n)]);
+  const names = [...new Set([p.name, ...(p.names || []).map(([, n]) => n)])].filter(Boolean);
   const out = [];
   const seen = new Set();
   for (const h of world.tiles.values()) {
     for (const e of h.events) {
-      const hit = e.pid === p.id || [...names].some((n) => n && e.text.includes(n));
+      const hit = e.pid === p.id || names.some((n) => e.text.includes(n));
       if (!hit) continue;
       const k = `${e.y}|${e.text}`;
       if (seen.has(k)) continue;
@@ -111,7 +120,7 @@ export function nationProfile(world, pid, Y) {
   const peoples = [...now.cultures.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([c, pop]) => {
     const cu = world.cultures.get(c);
     const par = cu && cu.parent ? world.cultures.get(cu.parent) : null;
-    return { id: c, name: cu ? cu.name : '?', from: par ? par.name : null, share: pop / totalPop, ruling: c === p.culture };
+    return { id: c, name: cu ? cu.name : '?', from: par ? par.name : null, share: pop / totalPop, ruling: c === p.culture, species: cultureSpecies(cu) };
   });
 
   const parent = p.parent ? world.polities.get(p.parent) : null;
@@ -143,7 +152,7 @@ export function nationProfile(world, pid, Y) {
     perHead: now.pop ? now.gdp / now.pop : 0,
     government: government(p, type, tech, title, capital, worlds, rng),
     life: TECH_LIFE[Math.max(0, Math.min(TECH_LIFE.length - 1, Math.floor(tech)))],
-    peoples, rulingCulture: culture ? culture.name : null,
+    peoples, rulingCulture: culture ? culture.name : null, species: speciesMix(world, now.cultures, totalPop),
     origin, parent: parent ? { id: parent.id, name: world.polityName(parent.id, p.founded ?? Y) } : null,
     successors: successors.map((q) => ({ id: q.id, name: world.polityName(q.id, q.founded ?? Y) })),
     founded: p.founded, ended: p.ended, series, peak, events,
@@ -240,3 +249,16 @@ export const TYPE_LABEL = {
   republic: 'Republic', federation: 'Federation', union: 'Union', theocracy: 'Theocracy', league: 'League',
   'interworld federation': 'Interworld federation',
 };
+
+// Shares of each sapient species among a state's people, largest first.
+function speciesMix(world, cultures, total) {
+  const by = new Map();
+  for (const [c, pop] of cultures) {
+    const cu = world.cultures.get(c);
+    const sp = cultureSpecies(cu);
+    const a = by.get(sp.name) || { ...sp, habitat: habitatName(cu), share: 0 };
+    a.share += pop / (total || 1);
+    by.set(sp.name, a);
+  }
+  return [...by.values()].sort((a, b) => b.share - a.share);
+}
