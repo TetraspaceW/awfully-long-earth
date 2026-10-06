@@ -134,7 +134,7 @@ real 2000 figures, so other sheets' powers are comparable to the US, EU and Chin
 You can survey sheets in any order: forwards from a past, backwards from a
 future, or by tapping a sheet in the middle of nowhere. The micro history (which
 kingdom, which war) depends on the order, but the macro picture is meant not to.
-`src/macro/` defines it as a pure function of the seed, a position and a year.
+`src/macro.js` defines it as a pure function of the seed, a position and a year.
 Positions are continuous: each province is evaluated where it actually lies, and
 nothing in the macro layer knows where a sheet edge is, because sheets are how the
 map is cut up, not features of the territory.
@@ -226,15 +226,17 @@ climate, and the map tooltip gives each cell's temperature.
 
 ```
 src/engine.js   BigEarth: the engine API (reveal, query, render, save, events)
-src/core/       grid, coordinates, timeline, eras, maths, RNG, noise
-src/geo/        terrain, climate, biomes, provinces, cross-sheet links; the Atlas
-src/macro/      drift from Terra, macro targets, interworld federations
-src/terra/      real Earth: data, its sheet, its 1-2000 CE record
-src/world/      World registries, snapshots, saves, economy, queries
-src/history/    the tile generator, split by concern
-src/lore/       state profiles and chronicle text
-src/lang/       phonologies and names
-src/render/     headless rasteriser and map modes
+src/index.js    the package's public API
+src/core/       frame (grid, coordinates, timeline, eras), random, util
+src/geo/        sheet geography and the Atlas; public entry geo/index.js
+src/macro.js    drift from Terra, macro targets, interworld federations
+src/world/      the World and its snapshots; population, economy, queries
+src/history/    the tile generator: forwards, in reverse, bridging gaps
+src/terra.js    real Earth's 1-2000 CE record
+src/profile.js  state profiles
+src/names.js    phonologies and names
+src/render.js   headless rasteriser and map modes
+src/data/       Natural Earth outlines and Terra's hand-authored history
 src/ui/         the explorer (browser only)
 ```
 

@@ -1,7 +1,7 @@
 // Names for provinces, states and peoples created by the generator.
 
-import { Rng, hashN } from '../core/rng.js';
-import { randomPhon, mutatePhon, placeName, adjective, word, shortWord } from '../lang/names.js';
+import { Rng, hashN } from '../core/random.js';
+import { randomPhon, mutatePhon, placeName, adjective, word, shortWord } from '../names.js';
 
 // Provinces off Terra are named from a phonology of their sheet; names are
 // cached on the region (a sheet is a pure function of the seed, so a rebuilt

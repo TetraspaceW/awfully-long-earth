@@ -11,12 +11,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { World } from '../src/world/world.js';
-import { buildTerra } from '../src/terra/history.js';
+import { buildTerra } from '../src/terra.js';
 import { generateTile, regionName } from '../src/history/index.js';
-import { players } from '../src/world/query.js';
-import { nationProfile } from '../src/lore/profile.js';
-import { rasterTile } from '../src/render/raster.js';
-import { mapModes } from '../src/render/modes.js';
+import { players } from '../src/world/stats.js';
+import { nationProfile } from '../src/profile.js';
+import { rasterTile, mapModes } from '../src/render.js';
 import { climateAt } from '../src/geo/climate.js';
 
 const FILE = new URL('./golden.json', import.meta.url);
@@ -35,7 +34,7 @@ for (const seed of [20000, 7]) {
   const prof = [];
   for (const pid of [...w.polities.keys()].slice(0, 400)) {
     const b = nationProfile(w, pid, 2000);
-    prof.push(JSON.stringify({ ...b, p: undefined, pop: Math.round(b.pop), gdp: Math.round(b.gdp), tech: b.tech.toFixed(4), perHead: Math.round(b.perHead) }));
+    prof.push(JSON.stringify({ ...b, p: undefined, typeLabel: undefined, pop: Math.round(b.pop), gdp: Math.round(b.gdp), tech: b.tech.toFixed(4), perHead: Math.round(b.perHead) }));
   }
   got[p + 'profiles'] = h(prof.join('\n'));
   for (const [x, y] of [[0, 0], [1, 0], [2, 0], [3, 0]]) {

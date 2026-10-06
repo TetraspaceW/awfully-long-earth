@@ -2,9 +2,8 @@
 // temperature and moisture as noise over global cell coordinates, so they run
 // on seamlessly across sheet edges.
 
-import { W, H, latOf } from '../core/grid.js';
-import { WORLD_W } from '../core/coords.js';
-import { fbm } from '../core/noise.js';
+import { W, H, latOf, WORLD_W } from '../core/frame.js';
+import { fbm } from '../core/random.js';
 
 const LAND_BIAS = 0.1;   // tuned so sheets average roughly Earth's 30% land
 const BLEND = 40;        // cells over which neighbours bend towards Terra's edge

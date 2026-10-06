@@ -5,20 +5,16 @@
 // 1000-2000 CE tile. That millennium is still simulated, and becomes backstory.
 
 import { BigEarth } from '../engine.js';
-import { clearColorCache } from '../render/palette.js';
-import { $ } from './dom.js';
-import { createApp } from './app.js';
-import { loadSaved, autosaver } from './store.js';
-import { createMapView } from './map/view.js';
-import { attachMapInput } from './map/input.js';
-import { createPanel } from './panel/index.js';
-import { createModeBar, createLegend } from './legend.js';
-import { createToast, createSaveDialog } from './dialogs.js';
+import { clearColorCache } from '../render.js';
+import { $, createApp } from './app.js';
+import { Camera, createMapView, attachMapInput } from './map.js';
+import { createPanel } from './panel.js';
+import { loadSaved, autosaver, createModeBar, createLegend, createToast, createSaveDialog } from './controls.js';
 
 (async function boot() {
   const saved = await loadSaved();
   const engine = saved ? new BigEarth(saved) : BigEarth.create({ seed: 20000 });
-  const app = createApp(engine);
+  const app = createApp(engine, new Camera());
 
   createToast(app);
   createModeBar(app);

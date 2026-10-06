@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BigEarth } from '../../src/engine.js';
 import { World } from '../../src/world/world.js';
-import { SAVE_VERSION } from '../../src/world/codec.js';
-import { registerMapMode, mapModes } from '../../src/render/modes.js';
-import { W, H } from '../../src/core/grid.js';
+import { SAVE_VERSION } from '../../src/world/world.js';
+import { registerMapMode, mapModes } from '../../src/render.js';
+import { W, H } from '../../src/core/frame.js';
 
 const earth = BigEarth.create({ seed: 99, ring: [[1, 0]] });
 

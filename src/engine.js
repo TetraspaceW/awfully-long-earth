@@ -12,23 +12,16 @@
 //
 // Events: 'reveal' { x, y, t, tile }, 'load' { world }, '*' (everything).
 
-import { Emitter } from './core/emitter.js';
-import { W } from './core/grid.js';
-import { neighbourPos, posKey } from './core/coords.js';
-import { PRESENT, layerOf } from './core/timeline.js';
-import { eraName } from './core/eras.js';
+import { Emitter } from './core/util.js';
+import { W, neighbourPos, posKey, PRESENT, layerOf, eraName } from './core/frame.js';
 import { World } from './world/world.js';
-import { tileStateAt, players, worldPowers, peoplesOn } from './world/query.js';
-import { regionFigures } from './world/economy.js';
-import { buildTerra } from './terra/history.js';
+import { tileStateAt, players, worldPowers, peoplesOn, regionFigures } from './world/stats.js';
+import { buildTerra } from './terra.js';
 import { canGenerate, generateTile, regionName } from './history/index.js';
-import { nationProfile } from './lore/profile.js';
-import { BIOME, BIOME_NAMES } from './geo/biomes.js';
-import { cellBiome, cellTemp, seaState } from './geo/cells.js';
-import { climateName } from './geo/climate.js';
-import { eraShift } from './macro/drift.js';
-import { federationAt } from './macro/federations.js';
-import { rasterTile } from './render/raster.js';
+import { nationProfile } from './profile.js';
+import { BIOME, BIOME_NAMES, cellBiome, cellTemp, seaState, climateName, SEA_STATES } from './geo/index.js';
+import { eraShift, federationAt } from './macro.js';
+import { rasterTile } from './render.js';
 
 // Terra's present-day neighbours, revealed in a new world.
 export const START_RING = [[1, 0], [-1, 0], [0, -1], [0, 1]];
@@ -113,6 +106,7 @@ export class BigEarth extends Emitter {
     const out = {
       x, y, k, biome, biomeName: BIOME_NAMES[biome], temp: cellTemp(geo, k, Y), elev: geo.elev[k],
       ocean: biome === BIOME.OCEAN, sea: biome === BIOME.OCEAN ? seaState(geo, k, Y) : null,
+      seaName: SEA_STATES[seaState(geo, k, Y)],
       region: geo.region[k], revealed: false,
     };
     const st = this.stateAt(x, y, Y);
@@ -161,7 +155,7 @@ export class BigEarth extends Emitter {
   drift(x, y, Y = this.year) { return eraShift(this.seed, x + 0.5, y + 0.5, Y); }
   federation(gx, gy, Y = this.year) { return federationAt(this.seed, gx, gy, Y); }
 
-  /** RGBA pixels of a sheet in a map mode (see render/modes.js), or null if unrevealed. */
+  /** RGBA pixels of a sheet in a map mode (see render.js), or null if unrevealed. */
   raster(x, y, mode = 'political', { Y = this.year, focus = 0, out } = {}) {
     const st = this.stateAt(x, y, Y);
     if (!st) return null;

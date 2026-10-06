@@ -1,5 +1,8 @@
-// Enforces the module layering described in ARCHITECTURE.md:
-//   - each layer imports only from the layers it is allowed to
+// Enforces the module structure described in ARCHITECTURE.md:
+//   - the code is a small number of units; each unit is a file or a directory
+//   - a unit may only depend on the units listed for it (no upward imports)
+//   - from outside, a directory unit may only be imported through its public
+//     entry files; everything else in it is private
 //   - no import cycles between files
 //   - nothing outside src/ui touches the DOM
 // Run with `npm run check:layers` (part of `npm test`).
@@ -11,34 +14,24 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const src = path.join(root, 'src');
 
-// layer -> layers it may import (besides itself)
-export const RULES = {
-  'core': [],
-  'lang': ['core'],
-  'terra/data': [],
-  'macro': ['core'],
-  'geo': ['core', 'terra/geography', 'terra/data'],
-  'terra/geography': ['core', 'geo', 'terra/data'],
-  'world': ['core', 'geo', 'lang', 'terra/data'],
-  'terra/history': ['core', 'world', 'lang', 'terra/geography', 'terra/data'],
-  'history': ['core', 'geo', 'macro', 'world', 'lang', 'lore/chronicle'],
-  'lore/chronicle': [],
-  'lore': ['core', 'world', 'macro', 'lang', 'history/naming', 'lore/chronicle'],
-  'render': ['core', 'geo', 'world'],
-  'engine': ['core', 'geo', 'macro', 'world', 'history', 'terra/history', 'lore', 'render', 'history/naming', 'lore/chronicle'],
-  'ui': ['*'],
+// unit -> { public entry files (directory units), units it may import }
+export const UNITS = {
+  'core':       { public: ['core/frame.js', 'core/random.js', 'core/util.js'], uses: [] },
+  'data':       { public: ['data/earth-geo.js', 'data/earth-history.js', 'data/phonologies.js'], uses: [] },
+  'names.js':   { uses: ['core'] },
+  'macro.js':   { uses: ['core'] },
+  'geo':        { public: ['geo/index.js'], uses: ['core', 'data'] },
+  'world':      { public: ['world/world.js', 'world/stats.js'], uses: ['core', 'geo', 'names.js', 'data'] },
+  'history':    { public: ['history/index.js'], uses: ['core', 'geo', 'macro.js', 'world', 'names.js'] },
+  'terra.js':   { uses: ['core', 'geo', 'world', 'names.js', 'data'] },
+  'profile.js': { uses: ['core', 'macro.js', 'world', 'history', 'names.js'] },
+  'render.js':  { uses: ['core', 'geo', 'world'] },
+  'engine.js':  { uses: ['core', 'geo', 'macro.js', 'world', 'history', 'terra.js', 'profile.js', 'render.js'] },
+  'index.js':   { uses: ['core', 'engine.js', 'render.js', 'world'] },
+  'ui':         { public: ['ui/main.js'], uses: ['core', 'engine.js', 'render.js'] },
 };
 
-// the most specific layer a file belongs to
-function layerOf(rel) {
-  const noExt = rel.replace(/\.js$/, '');
-  if (noExt === 'engine' || noExt === 'index') return 'engine';
-  const keys = Object.keys(RULES).sort((a, b) => b.length - a.length);
-  return keys.find((k) => noExt === k || noExt.startsWith(k + '/') || noExt.startsWith(k + '.')) || null;
-}
-
-// whether file `rel` lies in layer (or file) `k`
-const within = (rel, k) => { const n = rel.replace(/\.js$/, ''); return n === k || n.startsWith(k + '/'); };
+const unitOf = (rel) => (UNITS[rel] ? rel : rel.split('/')[0]);
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
@@ -54,17 +47,18 @@ for (const f of files) {
   const deps = [...text.matchAll(/^\s*(?:import|export)[^'"]*?from\s+['"](\.[^'"]+)['"]/gm)].map((m) =>
     path.relative(src, path.resolve(path.dirname(f), m[1])).split(path.sep).join('/'));
   graph.set(rel, deps);
-  const layer = layerOf(rel);
-  if (!layer) { errors.push(`${rel}: not in any layer (add it to RULES)`); continue; }
-  const allowed = RULES[layer];
+  const unit = unitOf(rel);
+  const spec = UNITS[unit];
+  if (!spec) { errors.push(`${rel}: not in any unit (add it to UNITS)`); continue; }
   for (const d of deps) {
     if (d.startsWith('..')) { errors.push(`${rel}: imports outside src: ${d}`); continue; }
-    if (allowed.includes('*')) continue;
-    if (layerOf(d) === layer || allowed.some((a) => within(d, a))) continue;
-    if (layerOf(d) === 'ui') { errors.push(`${rel}: only the UI may import ${d}`); continue; }
-    errors.push(`${rel} (${layer}) may not import ${d} (${layerOf(d)})`);
+    const du = unitOf(d);
+    if (du === unit) continue;
+    if (!spec.uses.includes(du)) { errors.push(`${rel} (${unit}) may not depend on ${du} (imports ${d})`); continue; }
+    const pub = UNITS[du]?.public;
+    if (pub && !pub.includes(d)) errors.push(`${rel} imports ${d}, which is private to ${du}; use ${pub.join(' or ')}`);
   }
-  if (layer !== 'ui' && /\b(document|window|localStorage|HTMLElement)\s*[.(]/.test(text.replace(/\/\/.*$/gm, ''))) {
+  if (unit !== 'ui' && /\b(document|window|localStorage|HTMLElement)\s*[.(]/.test(text.replace(/\/\/.*$/gm, ''))) {
     errors.push(`${rel}: touches the DOM outside src/ui`);
   }
 }
@@ -87,4 +81,6 @@ if (errors.length) {
   console.error(errors.join('\n'));
   process.exit(1);
 }
-console.log(`layers ok: ${files.length} modules`);
+const unitEdges = new Set();
+for (const [f, deps] of graph) for (const d of deps) if (unitOf(f) !== unitOf(d)) unitEdges.add(`${unitOf(f)}>${unitOf(d)}`);
+console.log(`structure ok: ${files.length} files in ${Object.keys(UNITS).length} units, ${unitEdges.size} unit dependencies`);

@@ -1,3 +1,15 @@
+// The explorer app's shared state, the bus its parts talk over, and DOM helpers.
+
+import { Emitter } from '../core/util.js';
+
+// DOM helpers.
+
+export const $ = (id) => document.getElementById(id);
+export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+export const tick = () => new Promise((r) => setTimeout(r, 0));
+export const signed = (n) => `${n >= 0 ? '+' : ''}${n}`;
+
 // The explorer app's shared state, and the bus its parts talk over.
 //
 // Parts (map, panel, legend, dialogs) get the app object and never import each
@@ -8,17 +20,16 @@
 // 'mode' (map mode changed), 'invalidate' (cached map images are stale),
 // 'toast' (message), 'world' (a different world was adopted).
 
-import { Emitter } from '../core/emitter.js';
-import { Camera } from './map/camera.js';
 
-export function createApp(engine) {
+// cam: the map camera (map.js), shared so the panel and input agree on it
+export function createApp(engine, cam) {
   const bus = new Emitter();
   const app = {
     engine,
     bus,
     state: {
       mode: 'political',
-      cam: new Camera(),
+      cam,
       sel: { x: 0, y: 0 },
       nation: 0,     // polity whose profile is open
       allOpen: false, // "all states on this sheet" expanded

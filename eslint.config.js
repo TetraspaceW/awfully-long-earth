@@ -19,7 +19,7 @@ export default [
   },
   {
     // the codec falls back to Node's Buffer when there is no btoa/atob
-    files: ['src/world/codec.js'],
+    files: ['src/world/save.js'],
     languageOptions: { globals: { Buffer: 'readonly' } },
   },
 ];

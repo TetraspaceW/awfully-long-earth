@@ -1,10 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Atlas, terraSheet } from '../../src/geo/atlas.js';
-import { buildSheet } from '../../src/geo/sheet.js';
-import { edgeLinks } from '../../src/geo/edges.js';
+import { Atlas, terraSheet, buildSheet } from '../../src/geo/index.js';
+import { edgeLinks } from '../../src/geo/provinces.js';
 import { climateName } from '../../src/geo/climate.js';
-import { CELLS } from '../../src/core/grid.js';
+import { CELLS } from '../../src/core/frame.js';
 
 test('a sheet is a pure function of seed and position', () => {
   const a = new Atlas(5, { capacity: 1 });

@@ -1,12 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Rng, hashN } from '../../src/core/rng.js';
-import { LRU } from '../../src/core/lru.js';
-import { Emitter } from '../../src/core/emitter.js';
-import { piecewise, interpTable, clamp } from '../../src/core/math.js';
-import { tileKey, parseKey, neighbourPos, regionPos, isTerra } from '../../src/core/coords.js';
-import { formatYear, layerOf, snapYear, tileStart } from '../../src/core/timeline.js';
-import { techCap, eraName } from '../../src/core/eras.js';
+import { Rng, hashN } from '../../src/core/random.js';
+import { LRU, Emitter, piecewise, interpTable, clamp } from '../../src/core/util.js';
+import { tileKey, parseKey, neighbourPos, regionPos, isTerra, formatYear, layerOf, snapYear, tileStart, techCap, eraName } from '../../src/core/frame.js';
 
 test('rng is deterministic per seed', () => {
   const a = new Rng(hashN(1, 'x')), b = new Rng(hashN(1, 'x')), c = new Rng(hashN(2, 'x'));

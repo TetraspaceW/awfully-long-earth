@@ -3,16 +3,15 @@
 
 import assert from 'node:assert/strict';
 import { World } from '../src/world/world.js';
-import { buildTerra } from '../src/terra/history.js';
+import { buildTerra } from '../src/terra.js';
 import { generateTile, canGenerate } from '../src/history/index.js';
-import { edgeLinks } from '../src/geo/edges.js';
-import { regionCapacity } from '../src/geo/cells.js';
-import { players } from '../src/world/query.js';
-import { fmtPop, fmtMoney } from '../src/core/format.js';
-import { federationAt, eraShift, effectiveYear } from '../src/macro/index.js';
-import { nationProfile } from '../src/lore/profile.js';
-import { techCap } from '../src/core/eras.js';
-import { tileKey, neighbourPos, regionPos } from '../src/core/coords.js';
+import { edgeLinks } from '../src/geo/provinces.js';
+import { regionCapacity } from '../src/geo/climate.js';
+import { players } from '../src/world/stats.js';
+import { fmtPop, fmtMoney } from '../src/core/util.js';
+import { federationAt, eraShift, effectiveYear } from '../src/macro.js';
+import { nationProfile } from '../src/profile.js';
+import { techCap, tileKey, neighbourPos, regionPos } from '../src/core/frame.js';
 
 const warnings = [];
 const world = new World(20000);
