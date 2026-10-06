@@ -4,20 +4,20 @@
 // events when the world changes. It touches no DOM.
 //
 //   const earth = BigEarth.create({ seed: 20000 });
-//   earth.on('reveal', ({ x, y, t }) => ...);
+//   earth.on('reveal', ({ x, y }) => ...);
 //   if (earth.canReveal(2, 0)) earth.reveal(2, 0);
 //   earth.cell(1, 0, 120, 60);          // what is at a cell, in 2000 CE
 //   earth.players(2000);                // leading powers
 //   const save = earth.save();          // JSON string; BigEarth.load(save)
 //
-// Events: 'reveal' { x, y, t, tile }, 'load' { world }, '*' (everything).
+// Events: 'reveal' { x, y, tile }, 'load' { world }, '*' (everything).
 
 import { Emitter } from './core/util.js';
-import { W, neighbourPos, posKey, PRESENT, layerOf, eraName } from './core/frame.js';
+import { W, neighbourPos, posKey, PRESENT, PRESENT_LAYER, eraName } from './core/frame.js';
 import { World } from './world/world.js';
 import { tileStateAt, players, worldPowers, peoplesOn, regionFigures } from './world/stats.js';
 import { buildTerra } from './terra.js';
-import { canGenerate, generateTile, regionName } from './history/index.js';
+import { canGenerate, generateTile, regionName, FORWARD_SYSTEMS } from './history/index.js';
 import { nationProfile } from './profile.js';
 import { BIOME, BIOME_NAMES, cellBiome, cellTemp, seaState, climateName, SEA_STATES } from './geo/index.js';
 import { divergence, eraShift, federationAt } from './macro.js';
@@ -28,21 +28,24 @@ import { rasterTile } from './render.js';
 export const START_RING = [[1, 0], [-1, 0], [0, -1], [0, 1]];
 
 export class BigEarth extends Emitter {
-  /** @param {World} world */
-  constructor(world, { year = PRESENT } = {}) {
+  /**
+   * @param {World} world
+   * @param {{systems?: readonly object[]}} [opts]
+   *   systems: the history pipeline new sheets are generated with (default
+   *   FORWARD_SYSTEMS; see src/history/forward.js). Not saved.
+   */
+  constructor(world, { systems = FORWARD_SYSTEMS } = {}) {
     super();
     this.world = world;
-    // The moment the map shows by default. Revealing a sheet generates the
-    // millennium ending at (or containing) this year.
-    this.year = year;
+    this.systems = systems;
   }
 
   /** A new world: Terra's record plus, by default, its four neighbours. */
-  static create({ seed = 20000, ring = START_RING, year = PRESENT, warn } = {}) {
+  static create({ seed = 20000, ring = START_RING, systems, warn } = {}) {
     const w = new World(seed);
     buildTerra(w, warn);
-    const e = new BigEarth(w, { year });
-    for (const [x, y] of ring) generateTile(w, x, y, e.layer);
+    const e = new BigEarth(w, { systems });
+    for (const [x, y] of ring) generateTile(w, x, y, { systems: e.systems });
     return e;
   }
 
@@ -63,28 +66,29 @@ export class BigEarth extends Emitter {
 
   get seed() { return this.world.seed; }
 
-  // The millennium layer the default year belongs to: the one ending at it.
-  get layer() { return layerOf(this.year - 1); }
+  // The moment the map shows: Big Earth exists only in its present. Queries
+  // take an earlier year to read a sheet's backstory (1000-2000 CE).
+  get year() { return PRESENT; }
 
   // ------------------------------------------------------------- revealing
 
-  canReveal(x, y, t = this.layer) { return canGenerate(this.world, x, y, t); }
+  canReveal(x, y) { return canGenerate(this.world, x, y); }
 
-  isRevealed(x, y, t = this.layer) { return this.world.hasTile(x, y, t); }
+  isRevealed(x, y) { return this.world.hasTile(x, y, PRESENT_LAYER); }
 
-  reveal(x, y, t = this.layer) {
-    if (!this.canReveal(x, y, t)) return null;
-    const tile = generateTile(this.world, x, y, t);
-    this.emit('reveal', { x, y, t, tile });
+  reveal(x, y) {
+    if (!this.canReveal(x, y)) return null;
+    const tile = generateTile(this.world, x, y, { systems: this.systems });
+    this.emit('reveal', { x, y, tile });
     return tile;
   }
 
   // Reveal every revealable neighbour of (x, y), in this order; returns those revealed.
-  revealAround(x, y, t = this.layer, order = ['N', 'E', 'S', 'W']) {
+  revealAround(x, y, order = ['N', 'E', 'S', 'W']) {
     const out = [];
     for (const d of order) {
       const p = neighbourPos(x, y, d);
-      if (this.reveal(p.x, p.y, t)) out.push(p);
+      if (this.reveal(p.x, p.y)) out.push(p);
     }
     return out;
   }

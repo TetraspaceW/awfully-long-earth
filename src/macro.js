@@ -5,9 +5,9 @@
 // gx in [x, x+1), gy in [y, y+1). Sheets are how the map is cut up, not
 // features of the territory, so nothing here knows where a sheet edge is.
 //
-// Tiles are generated in whatever order the explorer chooses, from different
-// boundary conditions. The micro history differs with the order, but every mode
-// is steered towards these targets, so the macro picture (how advanced a place
+// Sheets are revealed in whatever order the explorer chooses, from different
+// boundary conditions. The micro history differs with the order, but the
+// simulation is steered towards these targets, so the macro picture (how advanced a place
 // is, how much of it is under states, how unified it is, which federation holds
 // it) does not depend on the order, and does not jump at sheet edges.
 //
@@ -38,31 +38,28 @@ export function field(seed, tag, gx, gy, Y, period, scale = 2) {
 
 // Drift from Terra.
 //
-// Terra's record (the area of sheet 0,0 in 1-2000 CE) is the one fixed point.
-// Everything else is joined to it through chains of boundary conditions, and each
-// link lets history wander a little, so the further a place is from that record
-// (in space and in millennia) the further its history can have drifted.
+// Terra is the one fixed point. Everything else is joined to it through chains
+// of boundary conditions, and each link lets history wander a little, so the
+// further a place is from Terra the further its history can have drifted. This
+// is the only way time enters Big Earth: a sheet's present can look like
+// Terra's past or future.
 //
 // The drift is a field with the same statistics everywhere, anchored at Terra:
 // octaves 3 to 90 sheets across, minus their value at Terra's own area. So every
 // world, not just Terra, has neighbours a few centuries off and far-off worlds
 // thousands of years off; Terra only fixes where the zero is.
 
-
-function terraDistance(gx, gy, Y) {
+// distance from Terra's sheet, in sheet widths
+function terraDistance(gx, gy) {
   const dx = Math.max(0, -gx, gx - 1), dy = Math.max(0, -gy, gy - 1);
-  const ds = Math.sqrt(dx * dx + dy * dy);
-  const dt = Y < 0 ? -Y / 1000 : Y > 2000 ? (Y - 2000) / 1000 : 0;
-  return { ds, dt };
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-// Variance per link: a little per sheet-width near the present (Terra's
-// neighbours share its world), more per millennium along Terra's own history,
-// and most for places far away in both space and time.
-export function driftYears(gx, gy, Y) {
-  const { ds: d0, dt } = terraDistance(gx, gy, Y);
-  const ds = Math.max(0, d0 - 0.1);
-  return Math.sqrt(60000 * ds ** 1.5 + 800000 * dt + 1700000 * ds * dt);
+// Typical drift in years: a little per sheet-width near Terra (its neighbours
+// share its world), growing with distance.
+export function driftYears(gx, gy) {
+  const ds = Math.max(0, terraDistance(gx, gy) - 0.1);
+  return Math.sqrt(60000 * ds ** 1.5);
 }
 
 // one heavy-tailed smooth walk in about [-1.3, 1.3]
@@ -73,7 +70,7 @@ function walk(seed, tag, gx, gy, Y) {
 
 // A persistent local leaning (unified or splintered, boom or bust...), growing
 // with the drift from Terra.
-export const bias = (seed, tag, gx, gy, Y) => Math.min(1.5, 0.35 * driftYears(gx, gy, Y) / 1000) * walk(seed, tag, gx, gy, Y);
+export const bias = (seed, tag, gx, gy, Y) => Math.min(1.5, 0.35 * driftYears(gx, gy) / 1000) * walk(seed, tag, gx, gy, Y);
 
 // Point of divergence. Every world has one: how long ago its history parted
 // from Terra's. Between neighbouring worlds it swings by at most about
@@ -121,20 +118,17 @@ export function podYears(u) {
   return a * POD_STEP <= POD_KNEE ? a * POD_STEP : POD_KNEE * Math.exp(Math.min(690, POD_SWING * a - 1));
 }
 
-// Divergence coordinate of a place: 0 over Terra's record. Away from Terra's own
-// millennia it widens everywhere at once (so neighbours stay close).
+// Divergence coordinate of a place: 0 over Terra's area.
 function podCoord(seed, gx, gy, Y) {
-  const { ds, dt } = terraDistance(gx, gy, Y);
   const tx = clamp(gx, 0, 1), ty = clamp(gy, 0, 1);
-  return podField(seed, gx, gy, Y, tx, ty, ds) * (1 + 0.15 * dt);
+  return podField(seed, gx, gy, Y, tx, ty, terraDistance(gx, gy));
 }
 
 // How long ago this place's history parted from Terra's.
 export function divergence(seed, gx, gy, Y) { return Math.round(podYears(podCoord(seed, gx, gy, Y))); }
 
 // Years this place runs ahead (+) or behind (-) Terra's timeline: at most half
-// its divergence (see eraGap), plus a wander along Terra's own column away from
-// 1-2000 CE.
+// its divergence (see eraGap).
 const shiftMemo = new Map();
 export function eraShift(seed, gx, gy, Y) {
   const key = `${seed}|${gx}|${gy}|${Y}`;
@@ -199,11 +193,8 @@ export function eraGap(q, pod) {
 }
 
 function computeShift(seed, gx, gy, Y) {
-  const { dt } = terraDistance(gx, gy, Y);
-  const u = podCoord(seed, gx, gy, Y);
-  const space = eraGap(eraQuantile(seed, gx, gy, Y), podYears(u));
-  const time = Math.sqrt(800000 * dt) * (2 * field(seed, 'shiftT', gx, gy, Y, 4000, 10) - 1) * 1.6;
-  return Math.round(space + time);
+  const space = eraGap(eraQuantile(seed, gx, gy, Y), podYears(podCoord(seed, gx, gy, Y)));
+  return Math.round(space);
 }
 
 // The year whose technology and institutions this place is living through.

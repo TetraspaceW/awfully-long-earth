@@ -11,7 +11,7 @@ const earth = BigEarth.create({ seed: 99, ring: [[1, 0]] });
 test('a new world has Terra and its starting ring', () => {
   assert.ok(earth.isRevealed(0, 0) && earth.isRevealed(1, 0));
   assert.ok(!earth.isRevealed(-1, 0));
-  assert.equal(earth.layer, 1);
+  assert.equal(earth.year, 2000);
   assert.equal(earth.sheetName(0, 0), 'Terra');
 });
 
@@ -61,6 +61,7 @@ test('save and load round-trip, keeping game data in ext', () => {
   assert.equal(back.save(), json);
   assert.deepEqual(back.world.ext, { game: { turn: 3 } });
   assert.throws(() => World.deserialize({ v: 999 }), /unknown save version/);
+  assert.throws(() => World.deserialize({ ...JSON.parse(json), v: 1 }), /unknown save version/);
 });
 
 test('custom map modes plug into the rasteriser', () => {

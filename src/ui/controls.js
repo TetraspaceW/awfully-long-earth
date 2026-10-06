@@ -75,7 +75,11 @@ export function createSaveDialog(app) {
     try {
       app.adopt(await worldFromCode($('code').value.trim()));
       $('dlg').hidden = true; app.toast('World loaded');
-    } catch (e) { msg('That code could not be read. Paste the whole code, starting with gz:'); }
+    } catch (e) {
+      msg(/unknown save version/.test(e.message)
+        ? 'That world was saved by a different version of Big Earth and cannot be loaded.'
+        : 'That code could not be read. Paste the whole code, starting with gz:');
+    }
   });
   $('loadFile').addEventListener('change', async (e) => {
     const f = e.target.files[0];

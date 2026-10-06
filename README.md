@@ -12,9 +12,12 @@ You start with Terra and its four neighbours. Click a `+` sheet next to a reveal
 **reveal** it. Each new sheet is filled in from its **boundary conditions**, meaning the
 revealed sheets around it.
 
-There is no time control. Each sheet's present is still reached by simulating its
-last millennium (1000–2000 CE), and that history is kept as backstory: a sheet's
-"How this world came to be" and each state's origin, predecessor and key events.
+There is no time control: Big Earth exists only in its present. Other eras show up
+only as distance from Terra: the further out a sheet is, the further its
+development can run ahead of or behind Terra's timeline. Each sheet's present is
+reached by simulating its last millennium (1000–2000 CE), and that history is kept
+as backstory: a sheet's "How this world came to be" and each state's origin,
+predecessor and key events.
 
 ## Running it
 
@@ -68,53 +71,26 @@ generation works and the extension points (map modes, events, saved game data).
 - The map is saved in your browser. **Save & worlds** copies or loads a world
   code, or starts a new world from another seed.
 
-## How tiles are filled
+## How a sheet is made
 
-The engine still works in tiles of **1 Earth × 1000 years** and can generate any
-millennium from 20,000 BCE to 10,000 CE, in any order. The app only uses each sheet's
-1000–2000 CE tile and shows its end. The rest of this section describes the engine;
-`npm test` exercises all of it.
+A sheet's present is the end of its backstory millennium, 1000–2000 CE, stored
+as five snapshots (1000, 1250, 1500, 1750 and 2000 CE). A snapshot gives every
+province an owner, a people and a technology level.
 
-Each tile's state is stored as five snapshots (start, +250, +500, +750, end). A
-snapshot gives every province an owner, a people and a technology level. A new
-tile reads these faces:
+The millennium starts from a rough state drawn from the era's distribution
+(in the sheet's own effective year: see **Drift from Terra**), shaped by the
+revealed sheets around it: their peoples reach across the edges, their states
+may already hold land across them, and technology is nudged towards theirs.
+The full dynamics then run silently at that era for 800–1500 years
+("spin-up"), so the start looks like the result of history rather than a
+random draw; this also lets federations and world states form on sheets far
+ahead of Terra, where they take centuries. States and peoples that existed
+only during spin-up are discarded.
 
-| Face | What it contributes |
-|---|---|
-| Past (one millennium earlier) | Our start state is its end state, exactly. |
-| Future (one millennium later) | Our end state is its start state, exactly. States that must exist then are founded on the way (at their recorded founding date when one is known), peoples that must have spread do spread, and technology converges on it. |
-| East, west, north, south (same millennium) | Technology and peoples diffuse across the edge, and neighbouring states push in. A state can straddle sheets. |
-
-When only the future face is known (the usual case when exploring backwards),
-the tile is generated **in reverse**. Time runs backwards from the known future in
-50-year steps, undoing what history does going forwards:
-- states shrink back towards their founding dates and vanish at them;
-- conquered predecessors and collapsed empires reappear;
-- languages recede from their margins, and daughter languages fold back into
-  their parents;
-- technology drifts back towards its era's typical level, with the occasional
-  dark age undone.
-
-Read forwards, the result is continuous.
-
-When **both** the past and the future are known (filling a gap), the millennium is
-generated twice: forwards from the past and in reverse from the future. Each
-province then hands over from the forward history to the reverse one at its own
-moment. These moments are spatially smooth, cluster by the state that ends up
-holding the province, and fall where one of the two histories changes that
-province anyway. The two ends' disagreement is therefore spread over the
-millennium and reads as states rising at others' expense.
-
-Languages are slow variables. A tile with no adjacent millennium inherits its
-peoples from the nearest surveyed millennium on the same sheet, up to five
-away, so separately surveyed eras agree about who lives there.
-
-With no past or future face, the tile still has to start like one reached by
-simulating forwards. A rough starting state is drawn from the era's distribution,
-shaped by whichever side faces are known. The full dynamics then run silently at
-that era for 800–1500 years ("spin-up") before the tile begins. This lets
-federations and world states form in the far future, where they take centuries.
-States and peoples that existed only during spin-up are discarded.
+Then the millennium is simulated in 50-year steps. Throughout, the revealed
+neighbours act as **boundary conditions**: technology and peoples diffuse
+across the edges, and neighbouring states push in, so a state can straddle
+sheets.
 
 The simulation (`src/history/`) runs in 50-year steps, using deliberately Earth-like
 dynamics. States emerge where farming societies get complex enough. They expand by
@@ -123,7 +99,7 @@ successor states. Steppe hordes rise fast and fall fast. Languages spread with
 farmers and conquerors and split into daughter languages that keep their parent's
 sound system. Technology climbs towards an era ceiling, diffuses, and is knocked
 back by collapses, plagues, droughts and dark ages. That ceiling is a long plateau
-from about 16,000 BCE, which is why Big Earth's history is twenty millennia of
+from about 16,000 BCE, which is why sheets that run far behind Terra are worlds of
 rising and falling classical-to-medieval civilisations. After about 1550 CE the
 modern breakthrough spreads everywhere, unevenly, so by 2000 the sheets have
 Earth-like inequality. The population and economy models are calibrated on Earth's
@@ -131,9 +107,9 @@ real 2000 figures, so other sheets' powers are comparable to the US, EU and Chin
 
 ## Order independence
 
-You can survey sheets in any order: forwards from a past, backwards from a
-future, or by tapping a sheet in the middle of nowhere. The micro history (which
-kingdom, which war) depends on the order, but the macro picture is meant not to.
+You can reveal sheets in any order: outwards from Terra, or along a different
+path to the same place. The micro history (which kingdom, which war) depends on
+the order, but the macro picture is meant not to.
 `src/macro.js` defines it as a pure function of the seed, a position and a year.
 Positions are continuous: each province is evaluated where it actually lies, and
 nothing in the macro layer knows where a sheet edge is, because sheets are how the
@@ -147,24 +123,23 @@ map is cut up, not features of the territory.
 | Effective number of states | How unified a region is: empires and fragmentation cycle, nation states arrive, then unification |
 | Federations | Territorial. Federation cores sit at fixed places, about seven for every ten sheets. A core lights up once its surroundings reach its founding era, then its domain grows outward over centuries, holds, and contracts as its era ends. A province belongs to the core whose domain reaches furthest past it, if the province itself is in the federal era. A region entering that era is drawn in from the core outward over about 600 years, rather than all at once. Domains ignore sheet edges, so a federation spans worlds whenever its domain does, and frontiers move continuously |
 
-Every generation mode is steered towards these targets each step: emergence,
-conquest, collapse, decline and unions forwards; revival, re-merging and
-splitting in reverse. A sheet only measures how it is doing against the
-average of its provinces' targets, while the targets themselves vary smoothly
-across it and into the next sheet. `npm test` checks that the same sheet and era reached
-forwards, directly and backwards agree on state share, largest-state share and
-technology. It also checks that federation membership matches the macro layer
-whatever order sheets are surveyed in. The effective number of states still
-varies somewhat during the fast 2000–3000 CE unification.
+The simulation is steered towards these targets each step: emergence,
+conquest, collapse, decline and unions all scale with how far the sheet is from
+them. A sheet only measures how it is doing against the average of its
+provinces' targets, while the targets themselves vary smoothly across it and
+into the next sheet. `npm test` checks that the same sheet revealed directly,
+after a neighbour on one side, or after neighbours on two others agrees on
+state share, largest-state share and technology, and that federation
+membership matches the macro layer whichever order the sheets were revealed in.
 
 ### Drift from Terra
 
-Terra's record (the area of sheet 0,0 in 1–2000 CE) is the one fixed point. Every
-other world has a **point of divergence**: how long ago its history parted from
-Terra's. A world runs ahead of or behind Terra's timeline by up to half that (see
-below). Its technology, institutions, nation-state era, colonial window and
-federations all follow its own effective year, while sea level and ice follow real
-time.
+Terra is the one fixed point. Every other world has a **point of divergence**: how
+long ago its history parted from Terra's. A world runs ahead of or behind Terra's
+timeline by up to half that (see below). This is the only way time enters Big
+Earth: a sheet's present can look like Terra's past or future. Its technology,
+institutions, nation-state era, colonial window and federations all follow its own
+effective year, while sea level and ice follow real time.
 
 Between neighbouring worlds the point of divergence swings by at most about
 max(1,000 years, 20% of itself) (`POD_SWING` in `src/macro.js`). Near Terra it grows
@@ -291,16 +266,14 @@ climate, and the map tooltip gives each cell's temperature.
   provinces that are modern countries, with the big ones split. Borders are coarse.
   Present-day borders, population and GDP come from Natural Earth 1:50m (public
   domain); the "2000 CE" snapshot uses those present-day figures.
-- **Earth before 1 CE** is generated, constrained only by needing to arrive at the
-  real world of 1 CE (Rome, Han, Parthia and the rest are founded at their real dates).
 - **Larger states with higher technology.** A state's sustainable size grows
   roughly linearly with technology until the information age, then steeply.
   Treaties unite states into continental federations and then world states.
-  From 2400 CE, worlds federate across sheet borders, following the macro
-  layer above.
-- **After 2000 CE** tiles are speculative and marked as such. Wars resume at a low
-  rate, independence movements succeed, constitutions change, kin states unite and
-  blocs such as the EU may federate.
+  On sheets whose effective year has passed 2400, worlds federate across sheet
+  borders, following the macro layer above.
+- **Sheets running ahead of Terra** live in speculative futures. Wars resume at a
+  low rate, independence movements succeed, constitutions change, kin states
+  unite and blocs may federate.
 - Earth's own polities can push a little way into neighbouring sheets. In this
   world, Terra's history looks the same from inside, and Terra is one regional
   system among many.
@@ -314,7 +287,7 @@ src/core/       frame (grid, coordinates, timeline, eras), random, util
 src/geo/        sheet geography and the Atlas; public entry geo/index.js
 src/macro.js    drift from Terra, macro targets, interworld federations
 src/world/      the World and its snapshots; population, economy, queries
-src/history/    the tile generator: forwards, in reverse, bridging gaps
+src/history/    sheet generation: the backstory millennium as a pipeline of systems
 src/terra.js    real Earth's 1-2000 CE record
 src/profile.js  state profiles
 src/names.js    phonologies and names

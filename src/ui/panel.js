@@ -55,7 +55,7 @@ export function createPanel(app) {
 
   async function revealRing(x, y) {
     for (const d of ['N', 'E', 'S', 'W']) {
-      engine.revealAround(x, y, engine.layer, [d]);
+      engine.revealAround(x, y, [d]);
       await tick();
     }
     app.toast('Revealed the neighbouring worlds');
@@ -86,11 +86,10 @@ export function sheetHeader(app, x, y, st) {
 
 export function compass(app, x, y, st) {
   const { engine } = app;
-  const t = st ? st.hist.t : engine.layer;
   const extendBtn = (dx, dy, label, arrow) => {
     const nx = x + dx, ny = y + dy;
-    const exists = engine.isRevealed(nx, ny, t);
-    const ok = st && engine.canReveal(nx, ny, t);
+    const exists = engine.isRevealed(nx, ny);
+    const ok = st && engine.canReveal(nx, ny);
     const reason = exists ? 'Go there' : ok ? 'Reveal' : 'Not adjacent';
     const attr = exists ? `data-go="${nx},${ny}"` : `data-ext="${nx},${ny}"`;
     return `<button class="ext ${exists ? 'go' : ''}" ${ok || exists ? '' : 'disabled'} ${attr} title="${esc(reason)}">
