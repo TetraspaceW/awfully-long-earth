@@ -1,25 +1,34 @@
 // Generating history backwards in time, and filling gaps between a known
 // past and a known future.
 //
-// ReverseSim: with only a future face, run time backwards from it. Each step
-// undoes what TileSim's forward dynamics would have done, steered by the same
-// macro targets, so tiles reached forwards and backwards agree in the large.
+// ReverseRun: with only a future face, run time backwards from it. Each step
+// undoes what the forward systems would have done, steered by the same macro
+// targets, so tiles reached forwards and backwards agree in the large.
 //
 // runBridge: with both faces known, run forwards and in reverse and hand each
 // province over between the two histories.
 
 import { clamp } from '../core/util.js';
 import { STEPS, STEPS_PER_SNAP, STEP_YEARS } from '../core/frame.js';
-import { cloneSnap } from '../world/world.js';
+import { cloneSnap, newSnap } from '../world/world.js';
 import { newCulture } from './naming.js';
-import { TileSim } from './sim.js';
+import { SheetRun } from './kernel.js';
+import { ForwardRun } from './forward.js';
+import { alignFederations } from './politics.js';
 
 // backward generation drifts technology towards this share of the era ceiling,
 // matching where forward runs settle
 const BACK_TECH = 1.05;
 const BACK_LAG = 400;
 
-export class ReverseSim extends TileSim {
+export class ReverseRun extends SheetRun {
+  constructor(world, x, y, t, opts = {}) {
+    super(world, x, y, t, opts);
+    this.back = this.rng('reverse');
+    // when each state was founded (or arrived), and how big it grows: pid -> { N, at, f, drawn }
+    this.sched = new Map();
+  }
+
   // With only a future face, run time backwards from it. Each 50-year step undoes
   // what history would have done: states shrink back towards their founding (and
   // vanish at it), conquered predecessors reappear, clusters of successor states
@@ -29,22 +38,17 @@ export class ReverseSim extends TileSim {
   // Read forwards, the snapshots are continuous: no forced jump at the end.
 
   run() {
-    const { world } = this;
-    this.destined = new Map();
-    this.s = cloneSnap(this.target);
+    this.snap = cloneSnap(this.target);
     const snaps = new Array(5);
-    snaps[4] = cloneSnap(this.s);
-    this.sched = new Map();
+    snaps[4] = cloneSnap(this.snap);
     for (const [pid, N] of this.sizes()) this.makeSched(pid, N, this.end);
     for (let s = STEPS; s >= 1; s--) {
       const Y = this.start + s * STEP_YEARS, Yp = Y - STEP_YEARS;
       this.backStep(Y, Yp);
-      if ((s - 1) % STEPS_PER_SNAP === 0) snaps[(s - 1) / STEPS_PER_SNAP] = cloneSnap(this.s);
+      if ((s - 1) % STEPS_PER_SNAP === 0) snaps[(s - 1) / STEPS_PER_SNAP] = cloneSnap(this.snap);
     }
-    this.narrateSnaps(snaps);
-    const hist = { x: this.x, y: this.y, t: this.t, snaps, events: this.pruneEvents() };
-    if (this.commit) world.setTile(hist);
-    return hist;
+    this.log.fromSnapshots(snaps);
+    return this.result(snaps, this.log.close(this.snap));
   }
 
   // When was this polity founded (or, for a foreign one, when did it arrive)?
@@ -54,7 +58,7 @@ export class ReverseSim extends TileSim {
     let f = home ? p.founded : null;
     let drawn = false;
     if (f == null || f >= at) {
-      f = at - Math.round(this.rng.range(200, 600 + 100 * N));
+      f = at - Math.round(this.back.range(200, 600 + 100 * N));
       drawn = true;
       if (home && !p.earth) p.founded = f;
     }
@@ -74,8 +78,9 @@ export class ReverseSim extends TileSim {
   }
 
   backStep(Y, Yp) {
-    const { rng, n, R } = this;
-    const { owner, culture, tech } = this.s;
+    const { n, R } = this;
+    const rng = this.back;
+    const { owner, culture, tech } = this.snap;
 
     // land that was under ice or sea
     for (let r = 0; r < n; r++) {
@@ -99,18 +104,23 @@ export class ReverseSim extends TileSim {
         const r0 = rng.pick(live);
         const area = this.ball(r0, rng.int(2, 5));
         for (const r of area) if (culture[r]) tech[r] = Math.min(this.techCeil(r, Yp) + 0.2, tech[r] + rng.range(0.25, 0.6));
-        this.ev(Y - rng.int(0, 49), 'disaster', `A dark age falls on the lands around ${this.rname(r0)}: cities shrink, trade fails and old learning is lost.`);
+        this.log.ev(Y, 'disaster', `A dark age falls on the lands around ${this.log.rname(r0)}: cities shrink, trade fails and old learning is lost.`);
       }
     }
-    if (rng.chance(this.E(Yp) >= 1900 ? 0.006 : 0.015)) {
+    // the disasters that, going forwards, knocked technology back (narration only)
+    if (this.log.chance(this.E(Yp) >= 1900 ? 0.006 : 0.015)) {
       const live = [];
       for (let r = 0; r < n; r++) if (culture[r] && tech[r] >= 1) live.push(r);
-      if (live.length) this.ev(Y - rng.int(0, 49), 'disaster', `${rng.pick(this.shockKinds(Y))} strikes ${this.rname(rng.pick(live))} and the lands around it.`);
+      if (live.length) this.log.disaster(Y, this.log.pick(live));
     }
 
     // worlds leave and rejoin federations exactly when the macro layer says
-    this.alignFeds(Y, false, Yp);
-    this.control(Yp);
+    alignFederations(this, Y, rng, {
+      forward: false, Yp,
+      onRevive: (pid, size) => this.makeSched(pid, size, Yp),
+      onForget: (pid) => this.sched.delete(pid),
+    });
+    this.steer(Yp);
 
     // states shrink back towards their founding
     const mem = this.members();
@@ -143,7 +153,7 @@ export class ReverseSim extends TileSim {
       for (let i = 0; i < splits; i++) if (rng.chance(clamp(0.5 * (1 / consol - 1), 0, 0.85))) this.unmerge(Y, Yp);
     }
 
-    this.advancedEvents(Y);
+    this.log.advanced(Y, this.snap);
 
     // languages recede
     for (const c of new Set(culture)) {
@@ -152,7 +162,7 @@ export class ReverseSim extends TileSim {
       const par = rec.parent && this.world.cultures.has(rec.parent) ? rec.parent : 0;
       if (!par) continue;
       for (let r = 0; r < n; r++) if (culture[r] === c) culture[r] = par;
-      this.ev(rec.origin, 'culture', `The ${this.cname(c)} language emerges from ${this.cname(par)}.`);
+      this.log.at(rec.origin, 'culture', `The ${this.log.cname(c)} language emerges from ${this.log.cname(par)}.`);
     }
     const nc = culture.slice();
     for (let r = 0; r < n; r++) {
@@ -171,8 +181,8 @@ export class ReverseSim extends TileSim {
 
   // Who held these provinces before `pid` took them (or before it existed)?
   reassign(comp, pid, founding, Y, Yp, capR) {
-    const { rng } = this;
-    const { owner, tech } = this.s;
+    const rng = this.back;
+    const { owner, tech } = this.snap;
     const yy = Y - rng.int(0, 49);
     const neigh = new Set();
     for (const r of comp) for (const o of this.R[r].adj) {
@@ -184,12 +194,12 @@ export class ReverseSim extends TileSim {
       if (neigh.size && rng.chance(0.4)) {
         const q = rng.pick([...neigh]);
         for (const r of comp) owner[r] = q;
-        if (home) this.ev(yy, 'war', `${this.pref(pid, Y, true)} ${rng.pick(['breaks away from', 'rebels against', 'throws off the rule of'])} ${this.pref(q, Y)}.`, pid);
+        if (home) this.log.at(yy, 'war', `${this.log.pref(pid, Y, true)} ${this.log.pick(['breaks away from', 'rebels against', 'throws off the rule of'])} ${this.log.pref(q, Y)}.`, pid);
       } else if (home) {
-        this.ev(yy, 'polity', `${this.pref(pid, Y, true)} is founded in ${this.rname(comp.includes(capR) ? capR : comp[0])}.`, pid);
+        this.log.at(yy, 'polity', `${this.log.pref(pid, Y, true)} is founded in ${this.log.rname(comp.includes(capR) ? capR : comp[0])}.`, pid);
       }
       if (!home && comp.includes(capR)) {
-        this.ev(yy, 'contact', `${this.pref(pid, Y, true)} extends its rule into ${this.rname(comp[0])}.`, pid);
+        this.log.at(yy, 'contact', `${this.log.pref(pid, Y, true)} extends its rule into ${this.log.rname(comp[0])}.`, pid);
       }
       return;
     }
@@ -200,22 +210,22 @@ export class ReverseSim extends TileSim {
     }
     const best = comp.reduce((a, b) => (tech[b] > tech[a] ? b : a));
     if (tech[best] >= 2.6 && rng.chance(0.6)) {
-      const x = this.createPolity(best, Yp, null);
+      const x = this.createPolity(best, Yp, rng);
       if (!x) return;
       for (const r of comp) owner[r] = x;
       const px = this.pol(x);
       px.founded = null;
       px.ended = yy;
       this.makeSched(x, comp.length, Yp);
-      this.ev(yy, 'war', `${this.pref(x, Yp, true)} is conquered by ${this.pref(pid, Y)}.`, comp.length >= 3 ? 0 : x);
+      this.log.at(yy, 'war', `${this.log.pref(x, Yp, true)} is conquered by ${this.log.pref(pid, Y)}.`, comp.length >= 3 ? 0 : x);
     }
   }
 
   // Forward in time: a state collapses and leaves stateless land behind at Y.
   // Keeps the share of state-ready land under states near what forward runs show.
   revive(Y, Yp) {
-    const { rng } = this;
-    const { owner, culture, tech } = this.s;
+    const rng = this.back;
+    const { owner, culture, tech } = this.snap;
     const ready = [], free = [];
     for (let r = 0; r < this.n; r++) {
       if (!culture[r] || tech[r] < 2.6 || this.cap(r, Yp) < 0.3) continue;
@@ -239,7 +249,7 @@ export class ReverseSim extends TileSim {
           if (!seen.has(o) && !owner[o] && culture[o] && tech[o] >= 2.4) { seen.add(o); cluster.push(o); }
         }
       }
-      const x = this.createPolity(seed, Yp, null, { type: cluster.length >= 12 ? 'empire' : undefined });
+      const x = this.createPolity(seed, Yp, rng, { type: cluster.length >= 12 ? 'empire' : undefined });
       if (!x) continue;
       for (const r of cluster) owner[r] = x;
       const px = this.pol(x), yy = Y - rng.int(0, 49);
@@ -247,13 +257,13 @@ export class ReverseSim extends TileSim {
       this.makeSched(x, cluster.length, Yp);
       budget -= cluster.length;
       const how = ['collapses', 'falls into civil war and breaks apart', 'is torn apart by rival claimants', 'fragments after its last strong ruler dies', 'is abandoned as its cities empty'];
-      this.ev(yy, 'war', `${this.pref(x, Yp, true)} ${rng.pick(how)}.`, x);
+      this.log.at(yy, 'war', `${this.log.pref(x, Yp, true)} ${this.log.pick(how)}.`, x);
     }
   }
 
   // Forward in time: an empire collapses into successor states at Y.
   unfragment(Y, Yp, maxSize = 5) {
-    const { rng } = this;
+    const rng = this.back;
     const mem = this.members();
     const small = [...mem.keys()].filter((p) => {
       const sc = this.sched.get(p);
@@ -265,7 +275,7 @@ export class ReverseSim extends TileSim {
     const group = [a], inGroup = new Set([a]);
     for (let i = 0; i < group.length && group.length < (maxSize > 5 ? 10 : 6); i++) {
       for (const r of mem.get(group[i])) for (const o of this.R[r].adj) {
-        const b = this.s.owner[o];
+        const b = this.snap.owner[o];
         if (!b || inGroup.has(b) || !small.includes(b)) continue;
         if (maxSize <= 5 && this.world.cultureRoot(this.pol(b).culture) !== root) continue;
         inGroup.add(b); group.push(b);
@@ -274,10 +284,10 @@ export class ReverseSim extends TileSim {
     if (group.length < 2) return;
     const regs = group.flatMap((g) => mem.get(g));
     const capR = mem.get(a)[0];
-    const big = this.createPolity(capR, Yp, null, { type: regs.length >= 10 ? 'empire' : undefined });
+    const big = this.createPolity(capR, Yp, rng, { type: regs.length >= 10 ? 'empire' : undefined });
     if (!big) return;
     const yy = Y - rng.int(0, 49);
-    for (const r of regs) this.s.owner[r] = big;
+    for (const r of regs) this.snap.owner[r] = big;
     const pb = this.pol(big);
     pb.founded = null; pb.ended = yy;
     this.makeSched(big, regs.length, Yp);
@@ -286,20 +296,20 @@ export class ReverseSim extends TileSim {
       this.sched.delete(g);
     }
     const how = ['collapses', 'falls into civil war and breaks apart', 'is torn apart by rival claimants', 'fragments after its last strong ruler dies'];
-    const names = group.slice(0, 3).map((g) => this.pref(g, Y));
-    this.ev(yy, 'war', `${this.pref(big, Yp, true)} ${rng.pick(how)}. Successor states arise: ${names.join(', ')}${group.length > 3 ? ` and ${group.length - 3} more` : ''}.`, regs.length >= 4 ? 0 : big);
+    const names = group.slice(0, 3).map((g) => this.log.pref(g, Y));
+    this.log.at(yy, 'war', `${this.log.pref(big, Yp, true)} ${this.log.pick(how)}. Successor states arise: ${names.join(', ')}${group.length > 3 ? ` and ${group.length - 3} more` : ''}.`, regs.length >= 4 ? 0 : big);
   }
 
   // Forward in time: the largest state conquers a neighbour at Y.
   unmerge(Y, Yp) {
-    const { rng } = this;
+    const rng = this.back;
     const mem = this.members();
     let big = 0, bs = 0;
     for (const [p, l] of mem) if (l.length > bs && !this.pol(p).macro && !this.pol(p).earth) { big = p; bs = l.length; }
     if (!big || bs < 4) return;
     const list = mem.get(big);
     const p = this.pol(big);
-    const capR = p.capital && p.capital.x === this.x && p.capital.y === this.y && this.s.owner[p.capital.r] === big ? p.capital.r : list[0];
+    const capR = p.capital && p.capital.x === this.x && p.capital.y === this.y && this.snap.owner[p.capital.r] === big ? p.capital.r : list[0];
     const dist = this.distWithin(capR, new Set(list));
     const far = list.filter((r) => r !== capR).sort((a, b) => (dist.get(b) ?? 99) - (dist.get(a) ?? 99));
     const seed = far[0];
@@ -309,28 +319,28 @@ export class ReverseSim extends TileSim {
     for (let i = 0; i < cluster.length && cluster.length < want; i++) {
       for (const o of this.R[cluster[i]].adj) if (set.has(o) && !seen.has(o)) { seen.add(o); cluster.push(o); }
     }
-    for (const r of cluster) this.s.owner[r] = 0;
+    for (const r of cluster) this.snap.owner[r] = 0;
     this.reassignAsPredecessor(cluster, big, Y, Yp);
     const sc = this.sched.get(big);
     if (sc) { sc.N = Math.max(1, sc.N - cluster.length); }
   }
 
   reassignAsPredecessor(comp, pid, Y, Yp) {
-    const { rng } = this;
-    const best = comp.reduce((a, b) => (this.s.tech[b] > this.s.tech[a] ? b : a));
-    const x = this.createPolity(best, Yp, null);
+    const rng = this.back;
+    const best = comp.reduce((a, b) => (this.snap.tech[b] > this.snap.tech[a] ? b : a));
+    const x = this.createPolity(best, Yp, rng);
     if (!x) return;
-    for (const r of comp) this.s.owner[r] = x;
+    for (const r of comp) this.snap.owner[r] = x;
     const px = this.pol(x), yy = Y - rng.int(0, 49);
     px.founded = null; px.ended = yy;
     this.makeSched(x, comp.length, Yp);
-    this.ev(yy, 'war', `${this.pref(x, Yp, true)} is conquered by ${this.pref(pid, Y)}.`, comp.length >= 3 ? 0 : x);
+    this.log.at(yy, 'war', `${this.log.pref(x, Yp, true)} is conquered by ${this.log.pref(pid, Y)}.`, comp.length >= 3 ? 0 : x);
   }
 
   // Forward in time: a people is absorbed by its neighbours.
   unabsorb(Y) {
-    const { rng } = this;
-    const { culture } = this.s;
+    const rng = this.back;
+    const { culture } = this.snap;
     const byC = new Map();
     for (let r = 0; r < this.n; r++) if (culture[r]) { if (!byC.has(culture[r])) byC.set(culture[r], []); byC.get(culture[r]).push(r); }
     const big = [...byC.entries()].filter(([, l]) => l.length >= 8);
@@ -346,14 +356,10 @@ export class ReverseSim extends TileSim {
     }
     const old = newCulture(this.world, rng, { origin: null, home: this.pos });
     for (const r of cluster) culture[r] = old;
-    this.ev(Y - rng.int(0, 200), 'culture', `The last ${this.cname(old)}-speaking communities around ${this.rname(seed)} are absorbed by the ${this.cname(c)}.`);
+    this.log.ev(Y, 'culture', `The last ${this.log.cname(old)}-speaking communities around ${this.log.rname(seed)} are absorbed by the ${this.log.cname(c)}.`);
   }
-
-  // hooks called from TileSim.alignFeds
-  revived(pid, size, Yp) { this.makeSched(pid, size, Yp); }
-  unscheduled(pid) { this.sched.delete(pid); }
-
 }
+
 
 // With both a past and a future face, run the full millennium twice: forwards
 // from the past and in reverse from the future, each steered by the same macro
@@ -362,13 +368,13 @@ export class ReverseSim extends TileSim {
 // that will eventually hold the province, so rising states take over their
 // lands together; the disagreement between the two histories is spread over
 // the millennium instead of landing in its last years.
-export function runBridge(world, x, y, t) {
+export function runBridge(world, x, y, t, { systems } = {}) {
   // the run whose seed, names and bookkeeping the merged tile uses
-  const sim = new TileSim(world, x, y, t);
-  const { rng, n, R } = sim;
-  const opts = { commit: false };
-  const F = new TileSim(world, x, y, t, { ...opts, ignoreFuture: true, tag: 'F' }).run();
-  const B = new ReverseSim(world, x, y, t, { ...opts, ignorePast: true, tag: 'B' }).run();
+  const sim = new SheetRun(world, x, y, t);
+  const { n, R, log } = sim;
+  const rng = sim.rng('bridge');
+  const F = new ForwardRun(world, x, y, t, { systems, ignoreFuture: true, tag: 'F' }).run();
+  const B = new ReverseRun(world, x, y, t, { ignorePast: true, tag: 'B' }).run();
   const end = B.snaps[4];
 
   // handover times in (start, end): smooth noise over the province graph,
@@ -415,7 +421,7 @@ export function runBridge(world, x, y, t) {
   const snaps = [cloneSnap(F.snaps[0])];
   for (let k = 1; k <= 3; k++) {
     const f = F.snaps[k], b = B.snaps[k];
-    const s = { owner: new Int32Array(n), culture: new Int32Array(n), tech: new Float32Array(n) };
+    const s = newSnap(n);
     for (let r = 0; r < n; r++) {
       s.owner[r] = k < ownK[r] ? f.owner[r] : b.owner[r];
       // peoples hand over straight to whoever holds the land at the end
@@ -447,13 +453,11 @@ export function runBridge(world, x, y, t) {
       if (total < 3 || sim.pol(o)?.macro) continue;
       const [loser] = [...from.entries()].sort((a, b) => b[1] - a[1])[0];
       const lost = before.get(loser) || 0;
-      const Y = sim.start + 250 * k - rng.int(20, 220);
-      const verb = from.get(loser) >= lost * 0.7 ? rng.pick(['overthrows', 'supplants', 'absorbs']) : rng.pick(['rises at the expense of', 'takes provinces from', 'expands into the lands of']);
-      events.push({ y: Y, kind: 'war', text: `${sim.pref(o, Y, true)} ${verb} ${sim.pref(loser, Y)}.`, pid: 0 });
+      const Y = sim.start + 250 * k - log.rng.int(20, 220);
+      const verb = log.pick(from.get(loser) >= lost * 0.7 ? ['overthrows', 'supplants', 'absorbs'] : ['rises at the expense of', 'takes provinces from', 'expands into the lands of']);
+      events.push({ y: Y, kind: 'war', text: `${log.pref(o, Y, true)} ${verb} ${log.pref(loser, Y)}.`, pid: 0 });
     }
   }
   events.sort((a, b) => a.y - b.y);
-  const hist = { x: sim.x, y: sim.y, t: sim.t, snaps, events };
-  if (sim.commit) world.setTile(hist);
-  return hist;
+  return sim.result(snaps, events);
 }

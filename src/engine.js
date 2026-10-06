@@ -17,7 +17,7 @@ import { W, neighbourPos, posKey, PRESENT, layerOf, eraName } from './core/frame
 import { World } from './world/world.js';
 import { tileStateAt, players, worldPowers, peoplesOn, regionFigures } from './world/stats.js';
 import { buildTerra } from './terra.js';
-import { canGenerate, generateTile, regionName } from './history/index.js';
+import { canGenerate, generateTile, regionName, FORWARD_SYSTEMS } from './history/index.js';
 import { nationProfile } from './profile.js';
 import { BIOME, BIOME_NAMES, cellBiome, cellTemp, seaState, climateName, SEA_STATES } from './geo/index.js';
 import { eraShift, federationAt } from './macro.js';
@@ -28,20 +28,27 @@ export const START_RING = [[1, 0], [-1, 0], [0, -1], [0, 1]];
 
 export class BigEarth extends Emitter {
   /** @param {World} world */
-  constructor(world, { year = PRESENT } = {}) {
+  /**
+   * @param {World} world
+   * @param {{year?: number, systems?: readonly object[]}} [opts]
+   *   systems: the forward-history pipeline new tiles are generated with
+   *   (default FORWARD_SYSTEMS; see src/history/forward.js). Not saved.
+   */
+  constructor(world, { year = PRESENT, systems = FORWARD_SYSTEMS } = {}) {
     super();
     this.world = world;
     // The moment the map shows by default. Revealing a sheet generates the
     // millennium ending at (or containing) this year.
     this.year = year;
+    this.systems = systems;
   }
 
   /** A new world: Terra's record plus, by default, its four neighbours. */
-  static create({ seed = 20000, ring = START_RING, year = PRESENT, warn } = {}) {
+  static create({ seed = 20000, ring = START_RING, year = PRESENT, systems, warn } = {}) {
     const w = new World(seed);
     buildTerra(w, warn);
-    const e = new BigEarth(w, { year });
-    for (const [x, y] of ring) generateTile(w, x, y, e.layer);
+    const e = new BigEarth(w, { year, systems });
+    for (const [x, y] of ring) generateTile(w, x, y, e.layer, { systems: e.systems });
     return e;
   }
 
@@ -68,7 +75,7 @@ export class BigEarth extends Emitter {
 
   reveal(x, y, t = this.layer) {
     if (!this.canReveal(x, y, t)) return null;
-    const tile = generateTile(this.world, x, y, t);
+    const tile = generateTile(this.world, x, y, t, { systems: this.systems });
     this.emit('reveal', { x, y, t, tile });
     return tile;
   }
