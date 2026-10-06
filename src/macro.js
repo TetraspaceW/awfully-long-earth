@@ -10,21 +10,21 @@
 // is steered towards these targets, so the macro picture (how advanced a place
 // is, how much of it is under states, how unified it is, which federation holds
 // it) does not depend on the order, and does not jump at sheet edges.
+//
+// Nothing here reads or writes a World.
 
-import { W, H, GX0, GY0, techCap } from './constants.js';
-import { hashN, Rng } from './rng.js';
+import { GX0, GY0, techCap } from './core/frame.js';
+import { clamp, fade } from './core/util.js';
+import { hashN } from './core/random.js';
 
-const u01 = (...k) => hashN(...k) / 4294967296;
-const fade = (t) => t * t * (3 - 2 * t);
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// Smooth noise over space (sheet units) and time (years), for the macro layer.
 
-// Position of a province: its centroid in continuous sheet units.
-export function regionPos(x, y, reg) { return [x + (reg.cx + 0.5) / W, y + (reg.cy + 0.5) / H]; }
-export function sheetCentre(x, y) { return [x + 0.5, y + 0.5]; }
+
+export const u01 = (...k) => hashN(...k) / 4294967296;
 
 // Smooth noise in [0,1] over space and time. Lattice every `scale` sheets and
 // `period` years. Big Earth is an endless plane, so nothing repeats.
-function field(seed, tag, gx, gy, Y, period, scale = 2) {
+export function field(seed, tag, gx, gy, Y, period, scale = 2) {
   const fx = (gx - GX0) / scale, fy = (gy - GY0) / scale, fz = Y / period;
   const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
   const tx = fade(fx - ix), ty = fade(fy - iy), tz = fade(fz - iz);
@@ -36,7 +36,7 @@ function field(seed, tag, gx, gy, Y, period, scale = 2) {
   return s;
 }
 
-// ---------------------------------------------------------- drift from Terra
+// Drift from Terra.
 //
 // Terra's record (the area of sheet 0,0 in 1-2000 CE) is the one fixed point.
 // Everything else is joined to it through chains of boundary conditions, and each
@@ -47,6 +47,7 @@ function field(seed, tag, gx, gy, Y, period, scale = 2) {
 // octaves 3 to 90 sheets across, minus their value at Terra's own area. So every
 // world, not just Terra, has neighbours a few centuries off and far-off worlds
 // thousands of years off; Terra only fixes where the zero is.
+
 
 function terraDistance(gx, gy, Y) {
   const dx = Math.max(0, -gx, gx - 1), dy = Math.max(0, -gy, gy - 1);
@@ -69,6 +70,10 @@ function walk(seed, tag, gx, gy, Y) {
   const n = 2 * (0.7 * field(seed, tag, gx, gy, Y, 4000) + 0.3 * field(seed, tag + '2', gx, gy, Y, 1500)) - 1;
   return Math.sign(n) * Math.min(1.3, 1.6 * Math.abs(n) ** 0.8);
 }
+
+// A persistent local leaning (unified or splintered, boom or bust...), growing
+// with the drift from Terra.
+export const bias = (seed, tag, gx, gy, Y) => Math.min(1.5, 0.35 * driftYears(gx, gy, Y) / 1000) * walk(seed, tag, gx, gy, Y);
 
 // Point of divergence. Every world has one: how long ago its history parted
 // from Terra's. Between neighbouring worlds it swings by at most about
@@ -157,7 +162,9 @@ export function effectiveYear(seed, gx, gy, Y) { return Y + eraShift(seed, gx, g
 // modern humans yet: 0 before 300,000 BCE, 1 after 200,000 BCE.
 export function humanPresence(E) { return clamp((E + 300000) / 100000, 0, 1); }
 
-const bias = (seed, tag, gx, gy, Y) => Math.min(1.5, 0.35 * driftYears(gx, gy, Y) / 1000) * walk(seed, tag, gx, gy, Y);
+// What history should look like at continental scale: golden and dark ages,
+// how much land is under states, how unified it is.
+
 
 // Golden ages and dark ages: a multiplier on the era's technology ceiling.
 // Strong before the modern era, fading out after 1500 (in local effective
@@ -201,7 +208,7 @@ export function targetStateCount(seed, gx, gy, Y, tech, size) {
 
 export function macroTech(seed, gx, gy, Y) { return techCap(effectiveYear(seed, gx, gy, Y)) * development(seed, gx, gy, Y); }
 
-// ------------------------------------------------------------- federations
+// Interworld federations, as territory.
 //
 // Federations are territorial. Federation cores sit at fixed places: Big Earth
 // is cut into unit cells (one sheet each), and most cells hold one core at a
@@ -212,7 +219,8 @@ export function macroTech(seed, gx, gy, Y) { return techCap(effectiveYear(seed, 
 // federal era. Domains ignore sheet edges, so federations span worlds (sheets)
 // whenever their domains do, and their frontiers move continuously.
 
-const FED_ERA = 2400;   // local effective year from which provinces can federate
+
+export const FED_ERA = 2400;   // local effective year from which provinces can federate
 const FED_RAMP = 600;   // years over which a region's reach into federations grows
 const CORE_P = 0.7;      // share of cells holding a core
 const CORE_REACH = 4;   // cells to search: a core's radius never exceeds 3.3
@@ -302,21 +310,4 @@ export function federationWorlds(seed, fed, Y) {
     if (dist(gx, gy, nx, ny) < r) n++;
   }
   return n;
-}
-
-// The polity record for a federation, created on first use by any sheet.
-export function federationPolity(world, fed, Y) {
-  const key = fed.key;
-  let id = world.byKey(key);
-  if (id && world.polities.has(id)) return id;
-  const rng = new Rng(hashN(world.seed, key));
-  const sx = Math.floor(fed.core.gx), sy = Math.floor(fed.core.gy);
-  const core = world.tileName(sx, sy).replace(/^the /, '');
-  const name = rng.pick([`${core} Concord of Worlds`, `United Worlds of ${core}`, `${core} Interworld Federation`, `Commonwealth of the ${core} Worlds`]);
-  id = world.addPolity({
-    key, name, adj: core, base: core, core, culture: 0, type: 'federation', macro: true,
-    founded: Y, ended: null, capital: { x: sx, y: sy, r: -1 }, home: `${sx},${sy}`,
-    color: [Math.round(rng.range(0, 360)), 70, 52], agg: 1,
-  });
-  return id;
 }

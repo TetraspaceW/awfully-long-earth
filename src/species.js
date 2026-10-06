@@ -11,7 +11,7 @@
 // A lineage, once reached, holds for a long way: it changes only when deeper
 // divergence rules it out, or across regions about 1000 sheets wide.
 
-import { hashN } from './rng.js';
+import { hashN } from './core/random.js';
 import { divergence } from './macro.js';
 
 const u01 = (...k) => hashN(...k) / 4294967296;

@@ -24,10 +24,27 @@ To work on the code:
 
 ```sh
 npm install
-npm test            # generates a patch of Big Earth and checks invariants
+npm test            # lint, layer rules, unit tests, determinism, and a patch of Big Earth
 npm run build       # rebuilds dist/index.html and dist/artifact.html
 npm run build-earth # re-rasterises Natural Earth country outlines (needs network)
 ```
+
+## Building on it
+
+The world is a headless engine with no DOM. A game can drive it directly:
+
+```js
+import { BigEarth } from './src/index.js';
+
+const earth = BigEarth.create({ seed: 20000 });
+earth.on('reveal', ({ x, y }) => console.log(`revealed ${earth.sheetName(x, y)}`));
+earth.reveal(2, 0);
+earth.cell(2, 0, 120, 60);   // what is at a cell: terrain, province, owner, people, technology
+earth.players(2000);         // leading powers
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the layers, the data model, how
+generation works and the extension points (map modes, events, saved game data).
 
 ## Using it
 
@@ -99,7 +116,7 @@ that era for 800–1500 years ("spin-up") before the tile begins. This lets
 federations and world states form in the far future, where they take centuries.
 States and peoples that existed only during spin-up are discarded.
 
-The simulation (`src/sim.js`) runs in 50-year steps, using deliberately Earth-like
+The simulation (`src/history/`) runs in 50-year steps, using deliberately Earth-like
 dynamics. States emerge where farming societies get complex enough. They expand by
 weighted conquest, overextend, lose provinces to secession, and collapse into
 successor states. Steppe hordes rise fast and fall fast. Languages spread with
@@ -270,14 +287,19 @@ climate, and the map tooltip gives each cell's temperature.
 ## Layout
 
 ```
-src/constants.js          grid shape, timeline, era ceiling, sea level
-src/geo.js                terrain, climate, biomes, provinces, cross-sheet links
-src/data/earth-geo.js     rasterised Natural Earth countries (generated)
-src/data/earth-history.js Earth 1-2000 CE: polities, borders, peoples, technology, events
-src/earth.js              builds Terra's fixed tiles
-src/sim.js                the tile generator
-src/stats.js              population, economy, rankings
-src/names.js              per-culture phonologies and names
-src/render.js, main.js    canvas map and UI
-src/app.html              page markup and styles
+src/engine.js   BigEarth: the engine API (reveal, query, render, save, events)
+src/index.js    the package's public API
+src/core/       frame (grid, coordinates, timeline, eras), random, util
+src/geo/        sheet geography and the Atlas; public entry geo/index.js
+src/macro.js    drift from Terra, macro targets, interworld federations
+src/world/      the World and its snapshots; population, economy, queries
+src/history/    the tile generator: forwards, in reverse, bridging gaps
+src/terra.js    real Earth's 1-2000 CE record
+src/profile.js  state profiles
+src/names.js    phonologies and names
+src/render.js   headless rasteriser and map modes
+src/data/       Natural Earth outlines and Terra's hand-authored history
+src/ui/         the explorer (browser only)
 ```
+
+Details in [ARCHITECTURE.md](ARCHITECTURE.md).
