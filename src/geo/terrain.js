@@ -31,6 +31,16 @@ export function baseTemp(j, e) {
   return 28 - 52 * Math.pow(Math.abs(lat) / 90, 1.4) - 22 * Math.max(0, e - 0.12);
 }
 
+// The same on a planet whose axis tilts by `tilt` degrees rather than Terra's
+// 23.4. More tilt spreads the sun's warmth towards the poles; past about 54
+// degrees the poles are warmer than the equator over the year. The mean stays
+// about the same.
+export function tiltedTemp(j, e, tilt) {
+  const g = tilt < 23.4 ? 1 + 0.25 * (23.4 - tilt) / 23.4 : Math.max(-0.6, 1 - (tilt - 23.4) / 30.6);
+  const f = Math.pow(Math.abs(latOf(j)) / 90, 1.4);
+  return 28 - 52 * (g * f + (1 - g) * 0.3) - 22 * Math.max(0, e - 0.12);
+}
+
 export function baseMoist(j, coastDist, n) {
   const lat = Math.abs(latOf(j));
   return 0.5 + 0.38 * n + 0.28 * Math.exp(-coastDist / 10)

@@ -237,8 +237,30 @@ systems, so a cetacean language sounds like *K'iichoi* and a saurian one like
 *Zhaskaan*.
 
 Humans stay near Terra: other hominids appear a few hundred sheets out, and
-other branches of life about a thousand sheets out. Snowball and Venusian worlds
-have no sapient lineage. The **Species** map mode colours peoples by lineage.
+other branches of life about a thousand sheets out. Snowball and Venusian worlds,
+small worlds and the Gap have no sapient lineage. The **Species** map mode colours
+peoples by lineage.
+
+### Other Earths
+
+Go back far enough and it isn't only history that parts from Terra's: the sky
+and the planet do too (`src/planet.js`). Each sheet is one world, so its
+planet is drawn once per sheet, and the odds of each outcome depend on its point of divergence:
+
+| Divergence | What can differ |
+|---|---|
+| Under 50 million years | Nothing: the Solar System runs as it did for Terra |
+| Over 50 million years | The astrodynamics. The Solar System's orbits are chaotic and can't be traced back this far, so the world gets its own axial tilt, length of day and year, and an orbit a little nearer or further out (a few °C warmer or colder). These spread out fully by 500 million years. The chaos can be violent too: the further back a world parted, the likelier (up to one in five) that Earth has since been thrown onto a much nearer orbit (a hothouse or a runaway greenhouse), a further one (deep ice), or lost altogether, in a collision or flung out of the Solar System, leaving **the Gap** |
+| Over 4.51 billion years (the giant impact) | The Moon. A world may have no Moon, two, or a far bigger one. Without a Moon to steady it, its axis can lie anywhere, and with no tides to brake it, its day is short |
+| Over 4.54 billion years (Earth's assembly, complete by 4.57 billion) | The planet itself. One in two is still an Earth. Otherwise it is an **ocean world** (a few islands), a **small world** (a Mars: airless, frozen, dry basins, lifeless), or the Gap: no Earth ever formed, just a belt of asteroids where it should be |
+| Over 4.57 billion years | The star: a dim orange dwarf or a hot white star in place of the Sun |
+
+Axial tilt changes the climate: more tilt spreads warmth towards the poles, and
+past about 54° the poles are warmer than the equator over the year. The panel
+describes each world's planet and sky once they can differ. Worlds with their
+own sky, and the first lost or thrown Earths, start a few hundred sheets out.
+About 1,000 sheets out a twentieth of worlds are past Earth's formation; at
+10,000 sheets it is about three in five.
 
 ### Climate
 
@@ -286,6 +308,8 @@ src/index.js    the package's public API
 src/core/       frame (grid, coordinates, timeline, eras), random, util
 src/geo/        sheet geography and the Atlas; public entry geo/index.js
 src/macro.js    drift from Terra, macro targets, interworld federations
+src/species.js  which lineage became sapient where
+src/planet.js   other Earths: each world's planet and sky
 src/world/      the World and its snapshots; population, economy, queries
 src/history/    sheet generation: the backstory millennium as a pipeline of systems
 src/terra.js    real Earth's 1-2000 CE record

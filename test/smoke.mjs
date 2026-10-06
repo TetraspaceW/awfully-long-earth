@@ -242,7 +242,7 @@ console.log(`Terra/east edge land links: ${edgeLinks(world.geo(0, 0), world.geo(
   assert.ok(runs[30] >= 60, 'lineages reroll every few sheets');
   const far = new World(20000);
   buildTerra(far);
-  const h = generateTile(far, -333, 170, 1);   // a world of dolphin people, for this seed
+  const h = generateTile(far, -334, 170, 1);   // a world of ichthyans, for this seed (its neighbour -333, 170 is a Gap)
   const sp = new Map();
   for (const c of h.snaps[4].culture) if (c) { const k = far.cultures.get(c).species || 'human'; sp.set(k, (sp.get(k) || 0) + 1); }
   const top = [...sp].sort((a, b) => b[1] - a[1])[0];
