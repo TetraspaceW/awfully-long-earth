@@ -161,19 +161,6 @@ export class World {
     return c ? c.id : 0;
   }
 
-  // Spatial / temporal extent of what has been generated.
-  timeRange() {
-    let lo = Infinity, hi = -Infinity;
-    for (const h of this.tiles.values()) { lo = Math.min(lo, h.t); hi = Math.max(hi, h.t); }
-    return { lo, hi };
-  }
-
-  tilesAt(t) {
-    const out = [];
-    for (const h of this.tiles.values()) if (h.t === t) out.push(h);
-    return out;
-  }
-
   // Every sheet position with at least one generated tile, as "x,y" keys.
   positions() {
     const out = new Set();

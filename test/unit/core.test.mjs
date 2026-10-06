@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Rng, hashN } from '../../src/core/random.js';
 import { LRU, Emitter, piecewise, interpTable, clamp } from '../../src/core/util.js';
-import { tileKey, parseKey, neighbourPos, regionPos, isTerra, formatYear, layerOf, snapYear, tileStart, techCap, eraName } from '../../src/core/frame.js';
+import { tileKey, parseKey, neighbourPos, regionPos, isTerra, formatYear, snapYear, tileStart, techCap, eraName } from '../../src/core/frame.js';
 
 test('rng is deterministic per seed', () => {
   const a = new Rng(hashN(1, 'x')), b = new Rng(hashN(1, 'x')), c = new Rng(hashN(2, 'x'));
@@ -45,7 +45,6 @@ test('coordinates and timeline', () => {
   assert.equal(gx, 2.5); assert.equal(gy, 3.5);
   assert.equal(formatYear(-500), '500 BCE');
   assert.equal(formatYear(0), '1 CE');
-  assert.equal(layerOf(1999), 1); assert.equal(layerOf(-1), -1);
   assert.equal(snapYear(1, 4), 2000); assert.equal(tileStart(-3), -3000);
   assert.ok(techCap(2000) > techCap(0));
   assert.equal(eraName(9.4), 'Information age');

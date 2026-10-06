@@ -3,9 +3,13 @@
 // 1/20 of a level.
 //
 // To change the format, bump SAVE_VERSION and add a migration from the old
-// version to MIGRATIONS; loading runs every migration in turn.
+// version to MIGRATIONS; loading runs every migration in turn. A version with
+// no migration is rejected.
+//
+// Version 2: sheets exist only in the present. Version-1 saves can hold sheets
+// from other millennia, so they are not loaded.
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 // MIGRATIONS[v] turns a version-v save object into a version-(v+1) one.
 const MIGRATIONS = {};

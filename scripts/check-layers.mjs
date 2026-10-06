@@ -27,7 +27,7 @@ export const UNITS = {
   'profile.js': { uses: ['core', 'macro.js', 'world', 'history', 'names.js'] },
   'render.js':  { uses: ['core', 'geo', 'world'] },
   'engine.js':  { uses: ['core', 'geo', 'macro.js', 'world', 'history', 'terra.js', 'profile.js', 'render.js'] },
-  'index.js':   { uses: ['core', 'engine.js', 'render.js', 'world'] },
+  'index.js':   { uses: ['core', 'engine.js', 'render.js', 'world', 'history'] },
   'ui':         { public: ['ui/main.js'], uses: ['core', 'engine.js', 'render.js'] },
 };
 
