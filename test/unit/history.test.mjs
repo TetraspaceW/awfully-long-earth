@@ -19,16 +19,16 @@ test('the forward pipeline is a list of named systems', () => {
 
 test('a system drawing random numbers does not change what the others do', () => {
   const noisy = { name: 'noisy', step(run, tick, rng) { for (let i = 0; i < 50; i++) rng.next(); } };
-  const a = generateTile(fresh(), 1, 0, 1);
-  const b = generateTile(fresh(), 1, 0, 1, { systems: [...FORWARD_SYSTEMS.slice(0, 5), noisy, ...FORWARD_SYSTEMS.slice(5)] });
+  const a = generateTile(fresh(), 1, 0);
+  const b = generateTile(fresh(), 1, 0, { systems: [...FORWARD_SYSTEMS.slice(0, 5), noisy, ...FORWARD_SYSTEMS.slice(5)] });
   assert.ok(same(a, b));
 });
 
 test('narration cannot change history', () => {
   // a system that only writes to the chronicle, consuming its random stream
   const gossip = { name: 'gossip', step(run, { Y }) { run.log.ev(Y, 'culture', 'Gossip.'); run.log.pick([1, 2, 3]); } };
-  const a = generateTile(fresh(), 1, 0, 1);
-  const b = generateTile(fresh(), 1, 0, 1, { systems: [gossip, ...FORWARD_SYSTEMS] });
+  const a = generateTile(fresh(), 1, 0);
+  const b = generateTile(fresh(), 1, 0, { systems: [gossip, ...FORWARD_SYSTEMS] });
   assert.ok(same(a, b));
   assert.ok(b.events.some((e) => e.text === 'Gossip.'));
 });
@@ -38,7 +38,7 @@ test('a custom system can change history, and runs every step', () => {
   // a game rule: no state may hold the province with id 0
   const rule = { name: 'free-province', step(run) { steps++; run.snap.owner[0] = 0; } };
   const w = fresh();
-  const tile = generateTile(w, 1, 0, 1, { systems: [...FORWARD_SYSTEMS, rule] });
+  const tile = generateTile(w, 1, 0, { systems: [...FORWARD_SYSTEMS, rule] });
   assert.ok(steps >= 20, `ran ${steps} times`);
   for (const s of tile.snaps.slice(1)) assert.equal(s.owner[0], 0);
 });
@@ -52,14 +52,11 @@ test('the engine generates with its own pipeline', () => {
   assert.equal(seen[0], 1050);
 });
 
-test('generators fill tiles in every direction in time', () => {
+test('only sheets next to revealed ones can be revealed, once', () => {
   const w = fresh();
-  generateTile(w, 2, 0, 1);              // forwards, with neighbours only at the side
-  generateTile(w, 2, 0, -1);             // with no neighbours at all: a drawn, spun-up start
-  assert.ok(canGenerate(w, 2, 0, 0));
-  const gap = generateTile(w, 2, 0, 0);  // between a past and a future
-  assert.deepEqual([...gap.snaps[0].owner], [...w.tile(2, 0, -1).snaps[4].owner]);
-  assert.deepEqual([...gap.snaps[4].owner], [...w.tile(2, 0, 1).snaps[0].owner]);
-  const back = generateTile(w, 2, 0, -2); // backwards from a future
-  assert.deepEqual([...back.snaps[4].owner], [...w.tile(2, 0, -1).snaps[0].owner]);
+  assert.ok(canGenerate(w, 1, 0) && !canGenerate(w, 2, 0));
+  const tile = generateTile(w, 1, 0);
+  assert.equal(tile.t, 1);
+  assert.equal(tile.snaps.length, 5);
+  assert.ok(!canGenerate(w, 1, 0) && canGenerate(w, 2, 0));
 });

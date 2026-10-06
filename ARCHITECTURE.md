@@ -20,7 +20,7 @@ DOM outside `src/ui`.
 | `macro.js` | The macro layer: drift from Terra, development, state-share and unity targets, territorial federations. Pure functions of (seed, position, year) | itself | core |
 | `geo/` | Physical geography of a sheet, built and cached per seed by an `Atlas`. Private: `climate.js` (sea level, ice, climate field, biomes), `terrain.js`, `provinces.js`, `terra.js` (real Earth's sheet) | `index.js` | core, data |
 | `world/` | `world.js`: `World` (registries of peoples, states, blocs, generated tiles) and snapshots. `stats.js`: population, economy, queries. Private: `save.js` (the save format) | `world.js`, `stats.js` | core, geo, names, data |
-| `history/` | The tile generators. Private: `kernel.js` (`SheetRun`), `chronicle.js`, the systems in `nature.js` and `politics.js`, `forward.js`, `reverse.js`, `naming.js` | `index.js` | core, geo, macro, world, names |
+| `history/` | Sheet generation. Private: `kernel.js` (`SheetRun`), `chronicle.js`, the systems in `nature.js` and `politics.js`, `forward.js`, `naming.js` | `index.js` | core, geo, macro, world, names |
 | `terra.js` | Writes Terra's 1–2000 CE record into a World | itself | core, geo, world, names, data |
 | `profile.js` | A state's profile: government, peoples, backstory | itself | core, macro, world, history, names |
 | `render.js` | Headless rasteriser, map-mode registry, palette | itself | core, geo, world |
@@ -37,7 +37,7 @@ only the engine, the renderer and core.
   Geography is a pure function of `(seed, x, y)` and is never saved. Terra
   (0, 0) is real Earth and is the same for every seed. Its cells are grouped
   into **provinces** (`regions`), the units history happens on.
-- **Tile** (`world/world.js`, `TileHistory`): one sheet over one millennium,
+- **Tile** (`world/world.js`, `TileHistory`): one sheet's backstory millennium,
   stored as 5 **snapshots** 250 years apart. A snapshot is three arrays over
   the sheet's provinces: `owner` (polity id), `culture` (people id) and `tech`.
   Plus the tile's chronicle `events`.
@@ -48,28 +48,30 @@ only the engine, the renderer and core.
 - **Coordinates** (`core/frame.js`): sheets are integers `(x, y)` with y
   growing south; continuous positions are in sheet units `(gx, gy)`; cells are
   `k = j * W + i` within a sheet.
-- **Time**: layer `t` covers years `[1000t, 1000t + 1000]`. The explorer shows
-  2000 CE, the end of layer 1.
+- **Time**: Big Earth exists only in its present, 2000 CE. A tile still covers
+  a millennium (layer `t` is years `[1000t, 1000t + 1000]`): generated sheets
+  are layer 1 (1000–2000 CE), whose last snapshot is the present and the rest
+  backstory; Terra's fixed record also has layer 0. Other eras appear only
+  through `macro.js`: each sheet's development runs ahead of or behind
+  Terra's (`eraShift`), so its present can look like Terra's past or future.
 
-## How a tile is generated
+## How a sheet is generated
 
-`history/index.js#generateTile` picks a generator from the tile's known
-neighbours in time, and stores what it returns:
+`history/index.js#generateTile(world, x, y)` runs a `ForwardRun`
+(`forward.js`) over the sheet's backstory millennium and stores the tile.
+The run draws a starting state for 1000 CE from the era's distribution,
+shaped by the revealed sheets around it, spins it up silently so it looks
+like the result of history, then runs the systems pipeline every 50 years
+to 2000 CE.
 
-| Known | Generator |
-|---|---|
-| past only, or nothing | `ForwardRun` (`forward.js`): the systems pipeline, every 50 years. With no past it first draws a starting state and spins it up silently |
-| future only | `ReverseRun` (`reverse.js`), backwards from the future |
-| past and future | `runBridge` (`reverse.js`): both, then provinces hand over between them |
+It is built on a kernel, `SheetRun` (`kernel.js`), which keeps apart three
+kinds of thing:
 
-All three are built on one kernel, `SheetRun` (`kernel.js`), which keeps
-apart three kinds of thing:
-
-- **environment**, fixed for the run: the sheet, its time and side faces, the
+- **environment**, fixed for the run: the sheet, its revealed neighbours, the
   macro layer's fields at each province, graph helpers;
 - **state**: `snap`, the one snapshot being simulated (owner, culture, tech
-  per province), plus the steering multipliers `ctl`, the states the future
-  face requires (`destined`), and the languages it says emerge (`emerging`);
+  per province), plus the steering multipliers `ctl` and `warm` (set during
+  spin-up);
 - **services**: `rng(stream)`, a separate random stream per system; `log`, the
   chronicle; and operations on the world's registries (`createPolity`,
   `rename`).
@@ -84,12 +86,11 @@ through the kernel), and nothing else.
 | System | Module | What it does |
 |---|---|---|
 | `steering` | `forward.js` | Measures the sheet against the macro targets; sets `run.ctl` |
-| `destiny` | `politics.js` | Plants the states the future face requires |
-| `federations` | `politics.js` | Joins and leaves the macro layer's interworld federations |
+| `federations` | `politics.js` | For sheets far ahead of Terra: joins the macro layer's interworld federations |
 | `technology` | `nature.js` | Climbs towards the era ceiling, diffuses, converges on the modern frontier |
 | `shocks` | `nature.js` | Plagues and droughts knock technology back; marks `tick.shocked` |
 | `peoples` | `nature.js` | Settlement, migration, assimilation |
-| `languages` | `nature.js` | Daughter languages split off (or emerge on the future's schedule) |
+| `languages` | `nature.js` | Daughter languages split off |
 | `fallen` | `politics.js` | States whose home fell lose their provinces here |
 | `emergence` | `politics.js` | New states where societies are complex enough |
 | `expansion` | `politics.js` | Conquest |
@@ -98,8 +99,7 @@ through the kernel), and nothing else.
 | `collapse` | `politics.js` | Overstretched, ageing or struck states fall into successors |
 | `decline` | `politics.js` | Small states fade when the land is over-governed |
 | `reforms` | `politics.js` | Empires proclaimed, revolutions, dynastic unions |
-| `unions` | `politics.js` | The future's treaties, federations and bloc mergers |
-| `pull` | `politics.js` | Technology and peoples converge on the future face |
+| `unions` | `politics.js` | For sheets past Terra's present: treaties, federations and bloc mergers |
 | `narration` | `forward.js` | Technology milestones and advanced-world events |
 
 Two guarantees follow, and `test/unit/history.test.mjs` checks them:
@@ -111,13 +111,13 @@ Two guarantees follow, and `test/unit/history.test.mjs` checks them:
   only exists to tell the story (first contacts, peaks, milestones).
 
 To change history, add or replace systems:
-`generateTile(world, x, y, t, { systems })`, or
+`generateTile(world, x, y, { systems })`, or
 `BigEarth.create({ systems })` for every tile an engine generates. Start
 from `FORWARD_SYSTEMS` (exported from `src/index.js`).
 
-Every generator is steered towards `macro.js`, which is why the survey order
-does not change the big picture. The same seed, survey order and systems give
-byte-identical results; `test/golden.json` pins hashes of saves, renders and
+The pipeline is steered towards `macro.js`, which is why the order sheets are
+revealed in does not change the big picture. The same seed, reveal order and
+systems give byte-identical results; `test/golden.json` pins hashes of saves, renders and
 profiles.
 
 ## Using the engine
@@ -129,7 +129,7 @@ const earth = BigEarth.create({ seed: 20000 });   // Terra + its 4 neighbours
 earth.on('reveal', ({ x, y, tile }) => console.log('revealed', earth.sheetName(x, y)));
 
 earth.canReveal(2, 0);            // touches a revealed sheet?
-earth.reveal(2, 0);               // generate it (1000-2000 CE)
+earth.reveal(2, 0);               // generate its present (and 1000-2000 CE backstory)
 earth.cell(2, 0, 120, 60);        // biome, temperature, province, owner, people, tech, pop, gdp
 earth.province(2, 0, 17);         // one province and its state
 earth.players(2000, null, 10);    // leading powers (blocs count as one)

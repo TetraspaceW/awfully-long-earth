@@ -36,7 +36,7 @@ export class Chronicle {
     this.seenForeign = new Set();   // foreign states already announced
     this.peak = new Map();          // largest size each state reached here
     this.techMax = 0;               // highest technology reached so far
-    this.pastMax = 0;               // highest technology before this tile
+    this.startMax = 0;              // highest technology at the start of the run
     this.milestone = 0;             // highest milestone announced
   }
 
@@ -50,9 +50,6 @@ export class Chronicle {
     const y = hi > 0 ? Y - this.rng.int(lo, hi) : Y;
     this.events.push({ y: Math.round(y), kind, text, pid });
   }
-
-  // Record an event at exactly year y.
-  at(y, kind, text, pid = 0) { this.ev(y, kind, text, pid, 0); }
 
   pick(list) { return this.rng.pick(list); }
   chance(p) { return this.rng.chance(p); }
@@ -68,10 +65,10 @@ export class Chronicle {
   // -------------------------------------------------------- bookkeeping
 
   // What the tile starts with is not news.
-  begin(snap, pastMax) {
+  begin(snap, startMax) {
     const { run } = this;
-    this.pastMax = pastMax;
-    this.techMax = Math.max(pastMax, ...snap.tech);
+    this.startMax = startMax;
+    this.techMax = Math.max(startMax, ...snap.tech);
     this.milestone = Math.floor(this.techMax);
     for (const nb of run.nbs) for (const c of nb.hist.snaps[0].culture) this.seenCultures.add(c);
     for (const c of snap.culture) this.seenCultures.add(c);
@@ -113,7 +110,7 @@ export class Chronicle {
     const lvl = Math.floor(this.techMax);
     if (lvl <= this.milestone) return;
     for (let k = this.milestone + 1; k <= lvl; k++) {
-      if (k <= Math.floor(this.pastMax) || !MILESTONES[k]) continue;
+      if (k <= Math.floor(this.startMax) || !MILESTONES[k]) continue;
       this.ev(Y, 'tech', milestoneText(MILESTONES[k], this.rname(argmax(snap.tech)), Y));
     }
     this.milestone = lvl;
@@ -149,7 +146,7 @@ export class Chronicle {
   }
 
   // Great conquests and new dominant powers between two snapshots.
-  growth(Y, prev, now, jitter = [60, 240]) {
+  growth(Y, prev, now) {
     const { run } = this;
     this.noteSizes(now);
     for (const [pid, size] of now) {
@@ -159,7 +156,7 @@ export class Chronicle {
       if (size >= 6 && size - before >= Math.max(4, before)) {
         const c = run.world.cultures.get(p.culture);
         const ruler = c && c.phon ? rulerName(c.phon, this.rng, run.E(Y), p.type) : 'a new dynasty';
-        this.ev(Y, 'war', `Under ${ruler}, ${this.pref(pid, Y)} conquers ${size - before} provinces.`, pid, jitter);
+        this.ev(Y, 'war', `Under ${ruler}, ${this.pref(pid, Y)} conquers ${size - before} provinces.`, pid, [60, 240]);
       }
       if (size >= 18 && before < 18) {
         this.ev(Y, 'polity', `${this.pref(pid, Y, true)} becomes the dominant power of ${this.sheetName()}.`, pid, 200);
@@ -171,23 +168,6 @@ export class Chronicle {
   darkAge(Y, prevMean, mean) {
     if (prevMean - mean > 0.35 && this.run.E(Y) < 1900) {
       this.ev(Y, 'disaster', `A dark age settles over ${this.sheetName()}: cities shrink, trade routes fail and old learning is lost.`, 0, 200);
-    }
-  }
-
-  // For generators that read history off finished snapshots (reverse.js).
-  fromSnapshots(snaps) {
-    const { run } = this;
-    this.noteSizes(run.sizes(snaps[0]));
-    for (let k = 1; k < snaps.length; k++) {
-      const Y = run.start + k * 250;
-      this.growth(Y, run.sizes(snaps[k - 1]), run.sizes(snaps[k]), [30, 220]);
-    }
-    const maxT = snaps.map((sn) => Math.max(0, ...sn.tech));
-    for (let lvl = Math.floor(maxT[0]) + 1; lvl <= Math.floor(maxT[maxT.length - 1]); lvl++) {
-      const k = maxT.findIndex((m) => m >= lvl);
-      if (k <= 0 || !MILESTONES[lvl]) continue;
-      const yy = run.start + k * 250 - this.rng.int(0, 249);
-      this.ev(yy, 'tech', milestoneText(MILESTONES[lvl], this.rname(argmax(snaps[k].tech)), yy), 0, 0);
     }
   }
 

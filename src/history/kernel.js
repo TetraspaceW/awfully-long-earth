@@ -1,24 +1,22 @@
-// The kernel every history generator is built on: one run over one sheet and
-// one millennium.
+// The kernel history generation is built on: one run over one sheet's
+// backstory millennium (1000-2000 CE), which ends in its present.
 //
 // A SheetRun holds three kinds of thing, kept apart on purpose:
 //
-//   environment  fixed for the run: the sheet, its time and side faces, the
+//   environment  fixed for the run: the sheet, its neighbouring sheets, the
 //                macro layer's fields there, and graph helpers over the sheet's
 //                provinces. Read-only after construction.
 //   state        `snap`, the one snapshot being simulated (owner, culture and
-//                tech per province); `ctl`, the steering multipliers; `destined`,
-//                which states the future face requires; `emerging`, which
-//                languages it says emerge on the way; `warm`, set while a
-//                starting state is being spun up. Systems change `snap` and
-//                nothing else on the run.
+//                tech per province); `ctl`, the steering multipliers; `warm`,
+//                set while the starting state is being spun up. Systems change
+//                `snap` and nothing else on the run.
 //   services     `rng(stream)` (a separate random stream per system, so one
 //                system's draws never shift another's), `log` (the chronicle,
 //                with its own stream: narration can't change history), and the
 //                operations on the world's registries (founding, ending states).
 //
-// Dynamics live outside, as systems (systems.js) that a generator runs over a
-// SheetRun: forwards in forward.js, backwards in reverse.js.
+// The dynamics live outside, as systems (nature.js, politics.js) that
+// forward.js runs over a SheetRun.
 
 import { DIR_ORDER, neighbourPos, regionPos, sheetCentre, techCap, tileStart, TILE_YEARS, STEPS_PER_SNAP } from '../core/frame.js';
 import { clamp } from '../core/util.js';
@@ -34,12 +32,9 @@ export class SheetRun {
    * @param {import('../world/world.js').World} world
    * @param {number} x
    * @param {number} y
-   * @param {number} t  millennium layer
-   * @param {{ignorePast?: boolean, ignoreFuture?: boolean, tag?: string}} [opts]
-   *   ignorePast / ignoreFuture: treat that time face as unknown (bridges run one
-   *   generator from each end); tag: separates the random streams of such runs
+   * @param {number} t  the layer of the backstory millennium (PRESENT_LAYER)
    */
-  constructor(world, x, y, t, { ignorePast = false, ignoreFuture = false, tag = '' } = {}) {
+  constructor(world, x, y, t) {
     // ---------------------------------------------------------- environment
     this.world = world; this.x = x; this.y = y; this.t = t;
     this.pos = `${x},${y}`;
@@ -48,11 +43,6 @@ export class SheetRun {
     this.n = this.R.length;
     this.start = tileStart(t);
     this.end = this.start + TILE_YEARS;
-    this.tag = tag;
-    this.past = ignorePast ? null : world.tile(x, y, t - 1) || null;
-    this.future = ignoreFuture ? null : world.tile(x, y, t + 1) || null;
-    // the future face: the state this run has to arrive at, or null
-    this.target = this.future ? this.future.snaps[0] : null;
     // each province's persistent institutional quality, and its position in sheet units
     this.inst = Float32Array.from(this.R, (r) => 0.4 + 1.2 * (hashN(world.seed, 'inst', x, y, r.id) / 4294967296));
     this.rpos = this.R.map((reg) => regionPos(x, y, reg));
@@ -61,8 +51,8 @@ export class SheetRun {
     // habitable land relative to a typical sheet
     this.sizeFactor = Math.max(0.05, hab / 200);
 
-    // side faces: neighbouring sheets' tiles in the same millennium. ext[r]
-    // lists the provinces across the edge that province r touches.
+    // neighbouring sheets' tiles, already revealed. ext[r] lists the provinces
+    // across the edge that province r touches.
     this.nbs = [];
     this.ext = Array.from({ length: this.n }, () => []);
     for (const dir of DIR_ORDER) {
@@ -78,9 +68,6 @@ export class SheetRun {
     // ---------------------------------------------------------------- state
     this.snap = null;
     this.ctl = { emerge: 1, succ: 0.85, consol: 1, decay: 1, Sstar: 0.6, Nstar: 10 };
-    this.destined = new Map();
-    // languages the future face says emerge during this run: { c, from, regs, year, done }
-    this.emerging = [];
     this.warm = false;
 
     // ------------------------------------------------------------- services
@@ -89,11 +76,11 @@ export class SheetRun {
     this.memo = { E: new Map(), dev: new Map(), regions: new Map(), targets: null };
   }
 
-  // A random stream of its own for each system (and each tagged run).
+  // A random stream of its own for each system.
   rng(stream) {
     let r = this.streams.get(stream);
     if (!r) {
-      r = new Rng(hashN(this.world.seed, 'hist' + this.tag, this.x, this.y, this.t, stream));
+      r = new Rng(hashN(this.world.seed, 'hist', this.x, this.y, this.t, stream));
       this.streams.set(stream, r);
     }
     return r;
@@ -353,8 +340,8 @@ export class SheetRun {
     return { S: ready ? owned / ready : 0, effN: h ? (cells * cells) / h : 0, ready };
   }
 
-  // Refresh the steering multipliers that nudge every generation mode towards
-  // the macro targets: emerge (new states), succ (successor states after a
+  // Refresh the steering multipliers that nudge the dynamics towards the macro
+  // targets: emerge (new states), succ (successor states after a
   // collapse), decay (collapse), consol (conquest and unions against splits).
   steer(Y) {
     const m = this.measure(Y);
@@ -384,13 +371,9 @@ export class SheetRun {
     return p && p.capital && p.capital.x === this.x && p.capital.y === this.y ? p.capital.r : -1;
   }
 
-  // a state the future face requires to exist at the end of the run
-  isDestined(pid) { return this.destined.has(pid); }
-
-  // Found a state in province r (it takes r). Returns its id, or 0 when the
-  // future face forbids new states this late, or nobody lives there.
+  // Found a state in province r (it takes r). Returns its id, or 0 when
+  // nobody lives there.
   createPolity(r, Y, rng, { type, culture, parent } = {}) {
-    if (this.target && Y >= this.end) return 0;
     const c = culture || this.snap.culture[r];
     if (!c) return 0;
     if (!type) type = this.typeFor(r, this.snap.tech[r], Y, rng);

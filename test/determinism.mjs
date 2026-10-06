@@ -20,14 +20,13 @@ import { climateAt } from '../src/geo/climate.js';
 
 const FILE = new URL('./golden.json', import.meta.url);
 const h = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 16);
-// forwards, backwards, sideways, a gap between past and future, and the future
-const ORDER = [[1, 0, 1], [-1, 0, 1], [0, -1, 1], [0, 1, 1], [2, 0, 1], [1, 0, 0], [1, 0, 2], [1, 0, -1],
-  [3, 0, 1], [2, 0, 0], [0, 0, -1], [0, 0, 2]];
+// around Terra, further out, and one sheet with no revealed neighbours
+const ORDER = [[1, 0], [-1, 0], [0, -1], [0, 1], [2, 0], [1, 1], [3, 0], [2, 1], [-5, 4]];
 
 const got = {};
 for (const seed of [20000, 7]) {
   const w = new World(seed); buildTerra(w);
-  for (const [x, y, t] of ORDER) generateTile(w, x, y, t);
+  for (const [x, y] of ORDER) generateTile(w, x, y);
   const p = `${seed}:`;
   got[p + 'save'] = h(w.serialize());
   got[p + 'players'] = h(JSON.stringify(players(w, 2000, null, 30).map((q) => [q.name, Math.round(q.pop), Math.round(q.gdp)])));

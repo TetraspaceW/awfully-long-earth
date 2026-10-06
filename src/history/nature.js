@@ -66,12 +66,12 @@ export const shocks = {
 export const peoples = {
   name: 'peoples',
   step(run, { s, Y }, rng) {
-    const { n, R, target, log } = run;
+    const { n, R, log } = run;
     const { culture, tech, owner } = run.snap;
     const spread = new Map();
     for (let r = 0; r < n; r++) {
       if (run.cap(r, Y) < 0.03) {
-        if (!(target && target.culture[r])) { culture[r] = 0; tech[r] = 0; owner[r] = 0; }
+        culture[r] = 0; tech[r] = 0; owner[r] = 0;
         continue;
       }
       const cands = [];
@@ -118,22 +118,11 @@ export const peoples = {
 };
 
 // Large peoples cut off from their kin drift apart into daughter languages.
-// With a known future, no languages are invented that it doesn't remember;
-// instead the ones it says emerged during this millennium (run.emerging, set
-// by the starting state) do so on schedule.
 export const languages = {
   name: 'languages',
   step(run, { Y }, rng) {
     const { culture } = run.snap;
     const { log } = run;
-    for (const e of run.emerging) {
-      if (e.done || Y < e.year) continue;
-      e.done = true;
-      for (const r of e.regs) if (culture[r] === e.from) culture[r] = e.c;
-      log.seenCultures.add(e.c);
-      log.ev(e.year, 'culture', `The ${log.cname(e.c)} language emerges from ${log.cname(e.from)}.`, 0, 0);
-    }
-    if (run.target) return;
     for (const [c, regs] of run.peoples()) {
       if (regs.length < 6) continue;
       const rec = run.world.cultures.get(c);

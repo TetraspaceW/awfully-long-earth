@@ -1,114 +1,13 @@
 // Systems for states: how they emerge, expand, push in from neighbouring
 // sheets, break apart, collapse, decline, reform, unite, and join the macro
-// layer's interworld federations; and the future face, which makes a run
-// arrive at a known next millennium.
-//
-// Systems are { name, step(run, tick, rng) } (see nature.js). The helpers
-// below them (annex, fragment, alignFederations, ...) are shared with the
-// reverse-time generator.
+// layer's interworld federations (for sheets running far enough ahead of
+// Terra). Systems are { name, step(run, tick, rng) } (see nature.js).
 
-import { STEPS, STEP_YEARS } from '../core/frame.js';
 import { clamp } from '../core/util.js';
 import { Rng, hashN } from '../core/random.js';
-import { cloneSnap } from '../world/world.js';
 import { federationAt, federationWorlds } from '../macro.js';
 import { placeName, randomPhon, adjective } from '../names.js';
 import { coreName, familyName, ofName } from './naming.js';
-
-// ------------------------------------------------------------- the future face
-
-// Which states the future face requires, where each is seeded, and when.
-export function setupDestiny(run, rng) {
-  run.destined = new Map();
-  const T = run.target;
-  if (!T) return;
-  for (let r = 0; r < run.n; r++) {
-    const o = T.owner[r];
-    if (!o) continue;
-    let d = run.destined.get(o);
-    if (!d) run.destined.set(o, (d = { regions: new Set(), capReg: -1, seedYear: null, seeded: false }));
-    d.regions.add(r);
-  }
-  for (const [pid, d] of run.destined) {
-    const p = run.pol(pid);
-    const home = run.homeCapital(pid);
-    if (home >= 0 && d.regions.has(home)) d.capReg = home;
-    else {
-      let best = -1, bc = -1;
-      for (const r of d.regions) { const c = run.cap(r, run.end); if (c > bc) { bc = c; best = r; } }
-      d.capReg = best;
-    }
-    if (p.founded != null && p.founded < run.end) d.seedYear = p.founded;
-    else d.seedYear = run.end - Math.round(rng.range(60, Math.min(950, 150 + 70 * d.regions.size)) / STEP_YEARS) * STEP_YEARS;
-  }
-}
-
-// Plant each required state at its seeding year.
-export const destiny = {
-  name: 'destiny',
-  step(run, { Y }) {
-    const { log } = run;
-    for (const [pid, d] of run.destined) {
-      if (d.seeded || d.seedYear > Y) continue;
-      d.seeded = true;
-      if (run.snap.owner.includes(pid) || d.capReg < 0) continue;
-      run.snap.owner[d.capReg] = pid;
-      const p = run.pol(pid);
-      if (p.founded == null) p.founded = Math.max(d.seedYear, run.start - 500);
-      const where = log.rname(d.capReg);
-      log.ev(Math.max(Y - 25, d.seedYear), 'polity',
-        run.isHome(pid) ? `${log.pref(pid, Y, true)} is founded in ${where}.` : `${log.pref(pid, Y, true)} gains a foothold in ${where}.`, pid, 0);
-    }
-  },
-};
-
-// Technology and peoples converge on the future face, ever faster.
-export const pull = {
-  name: 'pull',
-  step(run, { s }, rng) {
-    const T = run.target;
-    if (!T) return;
-    const { tech, culture } = run.snap;
-    const w = (s / STEPS) ** 3;
-    for (let r = 0; r < run.n; r++) {
-      tech[r] += (T.tech[r] - tech[r]) * w;
-      if (s >= 10 && culture[r] !== T.culture[r] && rng.chance(0.5 * ((s - 10) / 10) ** 2)) culture[r] = T.culture[r];
-    }
-  },
-};
-
-// The last step: become the future face exactly, narrating what that ends.
-export function enforceTarget(run, Y) {
-  const T = run.target;
-  const { log } = run;
-  const after = run.sizes(T);
-  for (const [pid] of run.sizes()) {
-    if (after.has(pid)) continue;
-    const heir = topHeir(run, (r) => run.snap.owner[r] === pid, T.owner);
-    const yy = Y - 20;
-    if (run.isHome(pid)) {
-      const p = run.pol(pid);
-      if (p.ended == null || p.ended > yy) p.ended = yy;
-      log.ev(yy, 'polity', heir ? `${log.pref(pid, yy, true)} is overrun and absorbed by ${log.pref(heir, yy)}.`
-        : `${log.pref(pid, yy, true)} disintegrates.`, pid, 20);
-    }
-  }
-  const cAfter = new Set(T.culture);
-  for (const c of new Set(run.snap.culture)) {
-    if (!c || cAfter.has(c)) continue;
-    const heir = topHeir(run, (r) => run.snap.culture[r] === c, T.culture);
-    if (heir) log.ev(Y - 10, 'culture', `The last ${log.cname(c)}-speaking communities are absorbed by the ${log.cname(heir)}.`, 0, 190);
-  }
-  run.snap = cloneSnap(T);
-}
-
-function topHeir(run, mine, theirs) {
-  const heirs = new Map();
-  for (let r = 0; r < run.n; r++) if (mine(r) && theirs[r]) heirs.set(theirs[r], (heirs.get(theirs[r]) || 0) + 1);
-  let heir = 0, hc = 0;
-  for (const [h, c] of heirs) if (c > hc) { hc = c; heir = h; }
-  return heir;
-}
 
 // ------------------------------------------------------------- shared helpers
 
@@ -138,7 +37,7 @@ export function annex(run, pid, r, q, Y, rng) {
   const { owner } = run.snap;
   const { log } = run;
   owner[r] = pid;
-  if (q && run.E(Y) >= 1850 && !run.target && owner.includes(q)) {
+  if (q && run.E(Y) >= 1850 && owner.includes(q)) {
     const verb = log.pick(run.E(Y) >= 2000 ? ['seizes', 'annexes', 'occupies', 'wins', 'takes'] : ['seizes', 'annexes', 'conquers']);
     const war = log.chance(0.3) ? ` in the ${shortTitle(log.pname(pid, Y))}–${shortTitle(log.pname(q, Y))} War` : '';
     log.ev(Y, 'war', `${log.pref(pid, Y, true)} ${verb} ${log.rname(r)} from ${log.pref(q, Y)}${war}.`, pid);
@@ -159,7 +58,6 @@ function capitalCheck(run, q, Y, by) {
     const rr = nb.hist.snaps[4].owner.indexOf(q);
     if (rr >= 0) { p.capital = { x: nb.x, y: nb.y, r: rr }; return; }
   }
-  if (run.isDestined(q)) return;
   p.ended = Y;
   const { log } = run;
   log.ev(Y, 'war', by ? `${log.pref(q, Y, true)} is conquered by ${log.pref(by, Y)}.` : `${log.pref(q, Y, true)} is extinguished.`, q);
@@ -201,7 +99,7 @@ export const fallen = {
     for (const o of run.snap.owner) {
       if (!o || ended.has(o)) continue;
       const p = run.pol(o);
-      if (!p.macro && p.ended != null && p.ended <= Y && !run.isDestined(o)) ended.add(o);
+      if (!p.macro && p.ended != null && p.ended <= Y) ended.add(o);
     }
     for (const pid of ended) fragment(run, pid, Y, rng, `After the fall of ${run.log.pref(pid, Y)}, its provinces here go their own way.`);
   },
@@ -211,14 +109,13 @@ export const fallen = {
 // the macro layer wants more of the land under states.
 export const emergence = {
   name: 'emergence',
-  step(run, { s, Y }, rng) {
+  step(run, { Y }, rng) {
     const { owner, tech, culture } = run.snap;
-    const T = run.target, lt = run.targets(Y);
+    const lt = run.targets(Y);
     for (let r = 0; r < run.n; r++) {
       if (owner[r] || !culture[r] || tech[r] < 2.6) continue;
       const cap = run.cap(r, Y);
       if (cap < 0.3) continue;
-      if (T && T.owner[r] && run.isDestined(T.owner[r]) && s > 14) continue;
       const P = 0.025 * (tech[r] - 2.4) * Math.min(1, cap / 3) * (run.Er(r, Y) >= 1950 ? 6 : 1) * run.ctl.emerge
         * Math.exp(4 * (lt.S[r] - lt.Smean));
       if (!rng.chance(P)) continue;
@@ -245,7 +142,6 @@ export const expansion = {
       const size = list.length + st.extCount;
       const coh = clamp(1.25 - size / run.limit(pid, pt, Y), 0.03, 1);
       const tries = 1 + Math.min(3, Math.floor(size / 8));
-      const dest = run.destined.get(pid);
       for (let k = 0; k < tries; k++) {
         const cand = new Set();
         for (const r of list) {
@@ -253,7 +149,6 @@ export const expansion = {
           for (const o of run.neighbours(r, pt)) {
             if (owner[o] === pid || !culture[o] || run.cap(o, Y) < 0.05) continue;
             if (owner[o] && run.pol(owner[o]).macro) continue;
-            if (dest && !dest.regions.has(o)) continue;
             cand.add(o);
           }
         }
@@ -261,11 +156,8 @@ export const expansion = {
         const r = rng.weighted([...cand], (o) => (run.cap(o, Y) + 0.3) * (owner[o] ? 1 : 1.5));
         const q = owner[r];
         let D;
-        if (q) {
-          D = S(q).p * 1.1;
-          const qd = run.destined.get(q);
-          if (qd && qd.regions.has(r)) D *= 3 + 10 * (s / STEPS);
-        } else {
+        if (q) D = S(q).p * 1.1;
+        else {
           D = run.power(r, Y) * 0.8 + 0.5;
           if (tech[r] < 2) D *= 0.3;
         }
@@ -273,7 +165,6 @@ export const expansion = {
         const ratio = A / (A + D);
         let P = attackRate(run, Y, pt, tech[r], pid) * ratio * ratio * 2 * (q ? 0.7 : 1) * run.ctl.consol * run.unity(r, Y);
         if (!q && tech[r] >= 2.6) P *= Math.min(1, run.ctl.emerge); // over target: stop swallowing stateless land
-        if (dest) P *= 1 + 6 * (s / STEPS) ** 2;
         if (rng.chance(Math.min(0.9, P))) annex(run, pid, r, q, Y, rng);
       }
     }
@@ -295,14 +186,11 @@ export const incursions = {
       const p = run.pol(q);
       if (!p || p.macro || (p.ended != null && p.ended <= Y)) continue;
       if (owner[r] && run.pol(owner[r]).macro) continue;
-      if (run.destined.size && !run.isDestined(q) && s > 10) continue;
-      const qd = run.destined.get(q);
-      if (qd && !qd.regions.has(r)) continue;
       const A = run.extPower(q, s, Y).p;
       if (owner[r] && !mem) mem = run.members();
       const D = owner[r] ? strength(run, owner[r], mem, s, Y).p * 1.2 : run.power(r, Y) * 0.8 + 0.5;
       const ratio = A / (A + D);
-      const P = attackRate(run, Y, sn.tech[e.rr], tech[r], q) * ratio * ratio * (qd ? 2 : 0.6);
+      const P = attackRate(run, Y, sn.tech[e.rr], tech[r], q) * ratio * ratio * 0.6;
       if (!rng.chance(Math.min(0.8, P))) continue;
       annex(run, q, r, owner[r], Y, rng);
       run.log.incursion(q, e.nb.dir, Y, r);
@@ -317,7 +205,7 @@ export const secession = {
     const { culture, owner, tech } = run.snap;
     const { log } = run;
     for (const [pid, list] of run.members()) {
-      if (list.length < 4 || run.isDestined(pid)) continue;
+      if (list.length < 4) continue;
       const p = run.pol(pid);
       if (p.macro) continue;
       const pt = run.meanTech(list);
@@ -327,7 +215,6 @@ export const secession = {
       let P = (0.02 * Math.max(0, list.length / L - 0.6) + 0.015 * foreignShare) / run.ctl.consol;
       if (run.E(Y) >= 1945 && colonialShare > 0.2) P += 0.3; // decolonisation
       if (run.E(Y) >= 2000) P += 0.008; // independence movements
-      if (run.target && s > 15) P *= 0.3;
       if (!rng.chance(P)) continue;
       const capR = run.homeCapital(pid);
       const cx = capR >= 0 ? run.R[capR].cx : 120, cy = capR >= 0 ? run.R[capR].cy : 60;
@@ -353,7 +240,7 @@ export const collapse = {
   step(run, { s, Y, shocked }, rng) {
     const { log } = run;
     for (const [pid, list] of run.members()) {
-      if (!run.isHome(pid) || run.isDestined(pid)) continue;
+      if (!run.isHome(pid)) continue;
       const p = run.pol(pid);
       if (p.macro) continue;
       const t = run.meanTech(list);
@@ -367,7 +254,6 @@ export const collapse = {
       if (p.type === 'horde') P *= 2.2;
       if (run.E(Y) >= 1850 && t >= 7.5) P *= run.E(Y) >= 2000 ? 0.5 : 0.15;
       if (shocked.has(p.capital.r)) P += 0.12;
-      if (run.target) P += 0.25 * (s / STEPS) ** 3;
       if (!rng.chance(P)) continue;
       p.ended = Y;
       const how = run.E(Y) >= 1850
@@ -379,7 +265,7 @@ export const collapse = {
 };
 
 // When more land is under states than the macro target, small states decline
-// into chiefdoms (the mirror of reverse-time revival).
+// into chiefdoms.
 export const decline = {
   name: 'decline',
   step(run, { Y }, rng) {
@@ -391,7 +277,7 @@ export const decline = {
     const mem = run.members();
     const small = rng.shuffle([...mem.keys()].filter((p) => {
       const q = run.pol(p);
-      return mem.get(p).length <= 3 && run.isHome(p) && !q.macro && !q.earth && !run.isDestined(p);
+      return mem.get(p).length <= 3 && run.isHome(p) && !q.macro && !q.earth;
     }));
     const { log } = run;
     for (const pid of small) {
@@ -436,7 +322,7 @@ export const reforms = {
       }
     }
     // dynastic unions of small kin states
-    if (run.target || !rng.chance(0.08 * run.ctl.consol)) return;
+    if (!rng.chance(0.08 * run.ctl.consol)) return;
     for (const a of [...mem.keys()].filter((q) => mem.get(q).length < 6 && run.isHome(q))) {
       const ca = run.pol(a).culture;
       for (const r of mem.get(a)) {
@@ -474,7 +360,7 @@ export const unions = {
     }
     const tAvg = tn ? tsum / tn : 0;
     const attempts = Math.ceil(mem.size * clamp((tAvg - 8.6) * 0.1 * run.ctl.consol, 0.005, 0.8));
-    const free = (q) => mem.get(q)?.length && !run.isDestined(q) && !run.pol(q).macro;
+    const free = (q) => mem.get(q)?.length && !run.pol(q).macro;
     for (let k = 0; k < attempts; k++) {
       const pids = [...mem.keys()].filter(free);
       if (pids.length < 2) break;
@@ -626,14 +512,10 @@ function federationTargets(run, Y) {
   return { t, info };
 }
 
-// Make the sheet agree with the macro layer's federation domains.
-// Forwards (at Y): provinces outside a federation's domain secede, and states
-// inside one accede. Backwards (towards Yp, forward = false): the same changes
-// are undone; onRevive(pid, size) is told of each state that must have existed
-// before, and onForget(pid) of each whose founding is no longer known.
-export function alignFederations(run, Y, rng, { forward = true, Yp = Y, onRevive = () => {}, onForget = () => {} } = {}) {
-  const Yt = forward ? Y : Yp;
-  const { t: tgt, info } = federationTargets(run, Yt);
+// Make the sheet agree with the macro layer's federation domains in year Y:
+// provinces outside a federation's domain secede, and states inside one accede.
+function alignFederations(run, Y, rng) {
+  const { t: tgt, info } = federationTargets(run, Y);
   const { owner } = run.snap;
   const { log } = run;
   // federal provinces whose domain has moved
@@ -648,45 +530,30 @@ export function alignFederations(run, Y, rng, { forward = true, Yp = Y, onRevive
   for (const [G, regs] of out) {
     for (const comp of run.components(regs).flatMap((c) => run.byCulture(c))) {
       const best = comp.reduce((a, b) => (run.snap.tech[b] > run.snap.tech[a] ? b : a));
-      const np = run.createPolity(best, Yt, rng, { type: rng.pick(['republic', 'federation', 'union']) });
+      const np = run.createPolity(best, Y, rng, { type: rng.pick(['republic', 'federation', 'union']) });
       if (!np) continue;
       for (const r of comp) owner[r] = np;
-      if (forward) {
-        if (comp.length >= 2) log.ev(Y, 'polity', `${log.pref(np, Y, true)} secedes from ${log.pref(G, Y)}.`, G);
-      } else {
-        const p = run.pol(np);
-        p.founded = null; p.ended = Y - 25;
-        onRevive(np, comp.length);
-        if (comp.length >= 2) log.ev(Y, 'polity', `${log.pref(np, Yp, true)} accedes to ${log.pref(G, Y)}.`, G);
-      }
+      if (comp.length >= 2) log.ev(Y, 'polity', `${log.pref(np, Y, true)} secedes from ${log.pref(G, Y)}.`, G);
     }
   }
   // provinces inside a domain join it, wherever the frontier happens to fall;
   // a state wholly inside joins as a whole
   for (const [pid, list] of run.members()) {
     const p = run.pol(pid);
-    if (p.macro || run.isDestined(pid)) continue;
+    if (p.macro) continue;
     const counts = new Map();
     for (const r of list) if (tgt[r]) counts.set(tgt[r], (counts.get(tgt[r]) || 0) + 1);
     if (!counts.size) continue;
     for (const r of list) if (tgt[r]) owner[r] = tgt[r];
     const [F, inside] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
     const whole = inside === list.length;
-    if (forward) {
-      if (whole && run.isHome(pid) && !run.extPower(pid, 0, Y).c) p.ended = Y - 25;
-      if (whole || inside >= 3) {
-        const fed = info.get(F);
-        const n = fed ? federationWorlds(run.world.seed, fed, Y) : 1;
-        log.ev(Y, 'polity', whole
-          ? `${log.pref(pid, Y, true)} accedes to ${log.pref(F, Y)}${n > 1 ? `, a federation reaching across ${n} worlds` : ''}.`
-          : `${inside} provinces of ${log.pref(pid, Y)} vote to join ${log.pref(F, Y)}.`, F);
-      }
-    } else {
-      if (whole && !p.earth) p.founded = Y - 25;
-      if (whole) onForget(pid);
-      if (whole || inside >= 3) log.ev(Y, 'polity', whole
-        ? `${log.pref(pid, Y, true)} secedes from ${log.pref(F, Yp)}.`
-        : `${inside} provinces break away from ${log.pref(F, Yp)} and rejoin ${log.pref(pid, Y)}.`, F);
+    if (whole && run.isHome(pid) && !run.extPower(pid, 0, Y).c) p.ended = Y - 25;
+    if (whole || inside >= 3) {
+      const fed = info.get(F);
+      const n = fed ? federationWorlds(run.world.seed, fed, Y) : 1;
+      log.ev(Y, 'polity', whole
+        ? `${log.pref(pid, Y, true)} accedes to ${log.pref(F, Y)}${n > 1 ? `, a federation reaching across ${n} worlds` : ''}.`
+        : `${inside} provinces of ${log.pref(pid, Y)} vote to join ${log.pref(F, Y)}.`, F);
     }
   }
 }
