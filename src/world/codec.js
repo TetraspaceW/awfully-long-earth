@@ -29,9 +29,9 @@ export function encodeWorld(world) {
 export function decodeInto(world, d) {
   d = migrate(d);
   world.nextId = d.nextId; world.order = d.order;
-  for (const c of d.cultures) world.addCulture(c);
-  for (const p of d.polities) world.addPolity(p);
-  world.blocs = d.blocs || [];
+  for (const c of d.cultures) world.addCulture(fixHome(c));
+  for (const p of d.polities) world.addPolity(fixHome(p));
+  world.blocs = (d.blocs || []).map(fixHome);
   world.ext = d.ext || {};
   for (const t of d.tiles) {
     world.tiles.set(`${t.x},${t.y},${t.t}`, {
@@ -56,6 +56,15 @@ export function parseSave(json) {
 function migrate(d) {
   while (d.v < SAVE_VERSION) d = MIGRATIONS[d.v](d);
   return d;
+}
+
+// Saves from before the fix carry every province's coordinates as `home`
+// instead of the home sheet's "x,y".
+function fixHome(r) {
+  if (!Array.isArray(r.home)) return r;
+  if (r.capital) r.home = `${r.capital.x},${r.capital.y}`;
+  else delete r.home;
+  return r;
 }
 
 function quantTech(t) {

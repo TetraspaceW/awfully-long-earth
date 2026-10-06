@@ -107,7 +107,8 @@ export class TileSim {
     this.devMemo = new Map();
     this.effMemo = new Map();
     this.regMemo = new Map();
-    this.pos = this.R.map((reg) => regionPos(x, y, reg));
+    // each province's position in sheet units, where the macro layer is read
+    this.rpos = this.R.map((reg) => regionPos(x, y, reg));
     this.ctl = { emerge: 1, succ: 0.85, consol: 1, decay: 1, Sstar: 0.6 };
   }
 
@@ -150,7 +151,7 @@ export class TileSim {
       const seed = this.world.seed;
       m = { E: new Float32Array(this.n), dev: new Float32Array(this.n) };
       for (let r = 0; r < this.n; r++) {
-        const [gx, gy] = this.pos[r];
+        const [gx, gy] = this.rpos[r];
         m.E[r] = effectiveYear(seed, gx, gy, Y);
         m.dev[r] = development(seed, gx, gy, Y);
       }

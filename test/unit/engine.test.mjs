@@ -77,3 +77,19 @@ test('custom map modes plug into the rasteriser', () => {
   assert.equal(earth.raster(-7, 0), null, 'unrevealed sheets have no raster');
   assert.throws(() => earth.raster(0, 0, 'no-such-mode'));
 });
+
+test('saves from before the home fix load with sane homes', () => {
+  const d = JSON.parse(earth.save());
+  const p = d.polities.find((q) => !q.earth && q.capital);
+  p.home = [[1.5, 0.5], [1.6, 0.4]];
+  d.cultures[d.cultures.length - 1].home = [[1, 2]];
+  const w = World.deserialize(d);
+  assert.equal(w.polities.get(p.id).home, `${p.capital.x},${p.capital.y}`);
+  assert.ok(![...w.cultures.values()].some((c) => Array.isArray(c.home)));
+});
+
+test('generated states and peoples record their home sheet', () => {
+  for (const r of [...earth.world.polities.values(), ...earth.world.cultures.values()]) {
+    if (r.home != null) assert.match(r.home, /^-?\d+,-?\d+$/);
+  }
+});

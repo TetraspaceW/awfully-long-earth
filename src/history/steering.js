@@ -40,7 +40,7 @@ export class Steering {
     const S = new Float32Array(this.n), N = new Float32Array(this.n);
     let sS = 0, sN = 0, w = 0;
     for (let r = 0; r < this.n; r++) {
-      const [gx, gy] = this.pos[r];
+      const [gx, gy] = this.rpos[r];
       const Tm = techCap(effectiveYear(seed, gx, gy, Y)) * development(seed, gx, gy, Y);
       S[r] = targetStateShare(seed, gx, gy, Y, Tm);
       N[r] = targetStateCount(seed, gx, gy, Y, Tm, this.sizeFactor);

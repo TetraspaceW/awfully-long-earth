@@ -13,7 +13,7 @@ export class Federations {
     const t = new Int32Array(this.n);
     const info = new Map();
     for (let r = 0; r < this.n; r++) {
-      const [gx, gy] = this.pos[r];
+      const [gx, gy] = this.rpos[r];
       const fed = federationAt(this.world.seed, gx, gy, Y);
       if (!fed) continue;
       const F = federationPolity(this.world, fed, Y);
