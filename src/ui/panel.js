@@ -79,6 +79,7 @@ export function sheetHeader(app, x, y, st) {
     <h2>${esc(engine.sheetName(x, y))}</h2>
     <div class="meta">${chip}<span>2000 CE</span></div>
     ${climateNote(app, x, y)}
+    ${planetNote(app, x, y)}
     ${speciesNote(app, x, y)}
     ${driftNote(app, x, y)}
   </header>`;
@@ -116,10 +117,18 @@ export function unrevealedNote(app, x, y) {
 
 // This sheet's climate state, against Terra's.
 function climateNote(app, x, y) {
-  const { dT, name } = app.engine.climate(x, y);
+  const c = app.engine.climate(x, y);
+  if (!c) return '';
+  const { dT, name } = c;
   const d = Math.round(dT);
   const rel = Math.abs(d) < 1 ? 'about as warm as Terra' : `${Math.abs(d)} °C ${d > 0 ? 'warmer' : 'colder'} than Terra`;
   return `<p class="climate"><b>${esc(name)}</b> climate, ${rel}.</p>`;
+}
+
+// How this world's planet and sky differ from Terra's, if they can.
+function planetNote(app, x, y) {
+  const { note } = app.engine.planet(x, y);
+  return note ? `<p class="climate">${esc(note)}</p>` : '';
 }
 
 // Which lineage became sapient on this sheet (nothing for Terra's humans).
@@ -140,11 +149,14 @@ function spanYears(n) {
 }
 
 // When this sheet's history parted from Terra's, and how far ahead or behind it runs.
+// A world nothing could live on has no timeline to run ahead or behind on.
 function driftNote(app, x, y) {
   const shift = app.engine.drift(x, y, app.Y);
-  if (Math.abs(shift) < 150) return '';
+  const lifeless = !app.engine.climate(x, y);
+  if (Math.abs(shift) < 150 && !lifeless) return '';
   const pod = app.engine.divergence(x, y, app.Y);
   const when = pod > 4.5e9 ? ' (before Terra itself formed)' : '';
+  if (lifeless) return `<p class="drift">Its history parted from Terra's about ${spanYears(pod)} years ago${when}.</p>`;
   const own = app.Y + shift < -300000 ? ' No sapient species has arisen here yet.' : '';
   return `<p class="drift">Its history parted from Terra's about ${spanYears(pod)} years ago${when}, and it runs about ${spanYears(shift)} years ${shift > 0 ? 'ahead of' : 'behind'} Terra.${own}</p>`;
 }

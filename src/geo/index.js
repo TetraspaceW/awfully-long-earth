@@ -2,60 +2,51 @@
 // provinces) as a pure function of the world seed and its position, built on
 // demand and cached by an Atlas. This is the geo module's only public entry.
 
-import { globalX, globalY, isTerra, posKey, CELLS, H, W, lonOf } from '../core/frame.js';
+import { globalX, globalY, isTerra, posKey, CELLS, H, W, latOf, lonOf } from '../core/frame.js';
 import { LRU } from '../core/util.js';
 import { annotateTerraSheet, terraTerrain, terraProvinces } from './terra.js';
-import { climateAt, climateShift, climateZ, terrainSeed } from './climate.js';
+import { BARREN_MOIST, SURFACE, climateAt, climateShift, climateZ, terrainSeed } from './climate.js';
 import { bfsDistance, buildRegions } from './provinces.js';
 import { baseMoist, baseTemp, blendTowardsTerra, noiseElev, noiseMoist, noiseTemp, riverNoise } from './terrain.js';
+import { latitudes } from './bands.js';
+import { SMALL_WORLD_COLD, SPACE_TEMP, past, planetFields } from './blend.js';
+import { TERRA_PLANET, planetAt } from '../planet.js';
 
 // One sheet's physical geography: elevation, climate, biomes and provinces.
 // A pure function of the world seed and the sheet's position, so it never needs
 // saving. Terra (0, 0) comes from Natural Earth; its neighbours' noise terrain
-// is bent near the shared edge so coastlines run on across it.
-
-
-/**
- * @typedef {object} Region  a province
- * @property {number} id       index in sheet.regions
- * @property {string} code     Terra: ISO code with split suffix ("RUS-FE"); elsewhere the index
- * @property {number} cells    cells, including shelves that are only land in glacial times
- * @property {number} cellsNow cells above today's sea level
- * @property {number} cx       centroid, in cells
- * @property {number} cy
- * @property {number} habNow   habitability today; habGlacial at the glacial maximum
- * @property {number} habGlacial
- * @property {boolean} coastal
- * @property {number[]} adj    land-neighbour region ids on the same sheet
- * @property {Map<number, number>} sea  regions reachable by sea -> crossing length
- * @property {number} biome    dominant biome today
- * @property {number} steppe   share of steppe and desert
- *
- * @typedef {object} Sheet
- * @property {number} x
- * @property {number} y
- * @property {boolean} earth       whether this is Terra
- * @property {Float32Array} elev   per cell; 0 = today's sea level
- * @property {Float32Array} temp   per cell, deg C today
- * @property {Float32Array} moist  per cell; >= 1.5 marks a fertile river valley
- * @property {Uint8Array} land     per cell, today
- * @property {Int16Array} region   per cell: province id, or -1
- * @property {Region[]} regions
- */
+// is bent near the shared edge so coastlines run on across it. Which way a
+// sheet's north points, and so its climate bands, comes from a field that runs
+// on across sheets too (bands.js). Worlds that diverged from Terra far enough
+// back are other planets (see planet.js): an ocean world's land lies deeper, a
+// small world's is higher, airless and barren, the Gap is open space, and
+// tilt and orbit change the climate. These blend into the neighbouring worlds
+// near the edges (blend.js), so nothing jumps at an edge.
 
 /** @returns {Sheet} */
 export function buildSheet(worldSeed, x, y) {
   const earth = isTerra(x, y);
+  const planet = earth ? TERRA_PLANET : planetAt(worldSeed, x, y);
   const elev = new Float32Array(CELLS);
   const temp = new Float32Array(CELLS);
   const moist = new Float32Array(CELLS);
+  const surface = new Uint8Array(CELLS);   // SURFACE: air, airless or open space
   const seed = terrainSeed(worldSeed);
+  const pf = earth ? null : planetFields(worldSeed, seed, x, y);
+  const alat = earth ? null : latitudes(seed, x, y);
 
   if (earth) {
     elev.set(terraTerrain().elev);
   } else {
     for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) elev[j * W + i] = noiseElev(seed, globalX(x, i), globalY(y, j));
     blendTowardsTerra(x, y, elev, terraTerrain().elev);
+    if (pf) {
+      for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+        const k = j * W + i, X = globalX(x, i), Y = globalY(y, j);
+        elev[k] -= pf.sea[k];
+        if (past(seed, X, Y, pf.space[k], 81)) { surface[k] = SURFACE.SPACE; elev[k] = -1; } else if (past(seed, X, Y, pf.airless[k], 83)) surface[k] = SURFACE.AIRLESS;
+      }
+    }
   }
 
   const land = new Uint8Array(CELLS);
@@ -67,17 +58,28 @@ export function buildSheet(worldSeed, x, y) {
     const X = globalX(x, i), Y = globalY(y, j);
     const coast = land[k] ? dist[k] : 0;
     if (earth) {
-      temp[k] = baseTemp(j, elev[k]) + 2 * Math.sin(lonOf(i) / 30); // a little east-west texture
+      const a = Math.abs(latOf(j));
+      temp[k] = baseTemp(a, elev[k]) + 2 * Math.sin(lonOf(i) / 30); // a little east-west texture
       const mo = terraTerrain().moistOverride[k];
-      moist[k] = mo >= 0 ? mo : baseMoist(j, coast, 0.15);
-    } else {
-      temp[k] = baseTemp(j, elev[k]) + climateShift(climateZ(seed, X, Y)) + 4 * noiseTemp(seed, X, Y);
-      moist[k] = baseMoist(j, coast, noiseMoist(seed, X, Y));
-      if (elev[k] >= 0 && moist[k] < 0.45 && temp[k] > 8 && riverNoise(seed, X, Y) > 0.62) moist[k] = 2;
+      moist[k] = mo >= 0 ? mo : baseMoist(a, coast, 0.15);
+      continue;
     }
+    if (!pf) {
+      temp[k] = baseTemp(alat[k], elev[k]) + climateShift(climateZ(seed, X, Y)) + 4 * noiseTemp(seed, X, Y);
+    } else {
+      // an airless world keeps no greenhouse, and is a Mars; open space is colder still
+      const air = 1 - pf.airless[k];
+      let T = baseTemp(alat[k], elev[k], pf.g[k]) + pf.dT[k] + air * climateShift(climateZ(seed, X, Y))
+        + (1 - air) * SMALL_WORLD_COLD + 4 * noiseTemp(seed, X, Y);
+      T += pf.space[k] * (SPACE_TEMP - T);
+      temp[k] = T;
+    }
+    if (surface[k]) { moist[k] = surface[k] === SURFACE.AIRLESS ? BARREN_MOIST : 0; continue; }
+    moist[k] = baseMoist(alat[k], coast, noiseMoist(seed, X, Y));
+    if (elev[k] >= 0 && moist[k] < 0.45 && temp[k] > 8 && riverNoise(seed, X, Y) > 0.62) moist[k] = 2;
   }
 
-  const geo = { x, y, earth, elev, temp, moist, land, name: null };
+  const geo = { x, y, earth, planet, elev, temp, moist, land, surface, name: null };
   buildRegions(geo, worldSeed, earth ? terraProvinces : null);
   if (earth) annotateTerraSheet(geo);
   return geo;

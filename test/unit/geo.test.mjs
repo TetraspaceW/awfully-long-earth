@@ -43,3 +43,49 @@ test('climate names cover the whole range', () => {
   assert.equal(climateName(-100), 'Snowball (Cryogenian)');
   assert.equal(climateName(1000), 'Runaway greenhouse (Venusian)');
 });
+
+test('climate bands run on across sheet edges, and turn far from Terra', async () => {
+  const { latitudes } = await import('../../src/geo/bands.js');
+  const { latOf, W, H } = await import('../../src/core/frame.js');
+  // Terra and its neighbours keep north up, poles at the sheet edges
+  for (const [x, y] of [[1, 1], [-1, 0], [0, -1]]) {
+    const L = latitudes(7, x, y);
+    for (let j = 0; j < H; j += 7) assert.equal(L[j * W + 11], Math.abs(latOf(j)));
+  }
+  let step = 0, tilted = 0;
+  for (const [x, y] of [[40, 7], [-120, 300], [900, -40], [2, 0], [0, 2]]) {
+    const A = latitudes(7, x, y), B = latitudes(7, x + 1, y), C = latitudes(7, x, y + 1);
+    for (let j = 0; j < H; j++) step = Math.max(step, Math.abs(A[j * W + W - 1] - B[j * W]));
+    for (let i = 0; i < W; i++) step = Math.max(step, Math.abs(A[(H - 1) * W + i] - C[i]));
+    // north up means every row has one latitude; a turned sheet does not
+    let spread = 0;
+    for (let j = 0; j < H; j++) spread = Math.max(spread, Math.abs(A[j * W] - A[j * W + W - 1]));
+    if (spread > 20) tilted++;
+  }
+  assert.ok(step < 3, `latitude jumps ${step.toFixed(1)} degrees at a sheet edge`);
+  assert.ok(tilted >= 2, 'far sheets all keep north up');
+});
+
+test('other planets blend into their neighbours at the edges', async () => {
+  const { planetAt } = await import('../../src/planet.js');
+  const { W, H } = await import('../../src/core/frame.js');
+  // a Gap beside an ordinary world, and a small world beside one, in seed 20000
+  const pairs = [];
+  for (let x = -200; x < -170 && pairs.length < 4; x++) for (let y = 395; y < 420 && pairs.length < 4; y++) {
+    const a = planetAt(20000, x, y).kind, b = planetAt(20000, x + 1, y).kind;
+    if (a !== b) pairs.push([x, y]);
+  }
+  assert.ok(pairs.length >= 2);
+  const atlas = new Atlas(20000);
+  // no step at the edge steeper than the steepest within either sheet
+  const steepest = (g) => { let m = 0; for (let j = 0; j < H; j++) for (let i = 0; i < W - 1; i++) if (g.elev[j * W + i] >= 0 || g.elev[j * W + i + 1] >= 0) m = Math.max(m, Math.abs(g.elev[j * W + i] - g.elev[j * W + i + 1])); return m; };
+  for (const [x, y] of pairs) {
+    const A = atlas.sheet(x, y), B = atlas.sheet(x + 1, y);
+    const cliff = Math.max(steepest(A), steepest(B));
+    for (let j = 0; j < H; j++) {
+      const ka = j * W + W - 1, kb = j * W;
+      assert.ok(Math.abs(A.temp[ka] - B.temp[kb]) < 25, `temperature jumps at ${x},${y} row ${j}: ${A.temp[ka]} vs ${B.temp[kb]}`);
+      assert.ok(Math.abs(A.elev[ka] - B.elev[kb]) <= cliff || A.elev[ka] < 0 && B.elev[kb] < 0, `a cliff at ${x},${y} row ${j}`);
+    }
+  }
+});

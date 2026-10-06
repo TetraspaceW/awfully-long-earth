@@ -12,6 +12,7 @@
 // `cell` is { world, snap, r (province id), biome, Y, focus }.
 
 import { H, W } from './core/frame.js';
+import { hashN } from './core/random.js';
 import { BIOME, HAB, cellBiome, cellTemp, seaState } from './geo/index.js';
 import { density } from './world/stats.js';
 import { cultureSpecies } from './species.js';
@@ -22,7 +23,7 @@ import { cultureSpecies } from './species.js';
 export const BIOME_RGB = [
   [27, 52, 78], [232, 238, 240], [160, 163, 140], [78, 105, 78], [136, 125, 112], [214, 192, 140],
   [184, 180, 112], [108, 150, 84], [181, 164, 82], [62, 122, 62], [128, 174, 92], [92, 112, 70],
-  [150, 98, 66],
+  [150, 98, 66], [168, 104, 72],
 ];
 
 export const GREY = [150, 150, 145];
@@ -182,6 +183,9 @@ export function terrainRgb(geo, k, Y, b = cellBiome(geo, k, Y)) {
   if (b === BIOME.OCEAN) {
     const depth = Math.min(1, -geo.elev[k] / 0.4);
     const sea = seaState(geo, k, Y);
+    if (sea === 'void') return spaceRgb(geo, k);
+    // a small world's lowlands: dust-filled basins that never held seas long
+    if (sea === 'basin') return mix([150, 92, 64], [110, 64, 48], Math.min(1, -geo.elev[k] / 0.3));
     const T = cellTemp(geo, k, Y);
     if (sea === 'dry') return mix([128, 84, 62], [84, 50, 40], depth);
     rgb = mix([52, 92, 120], [20, 38, 60], depth);
@@ -195,6 +199,16 @@ export function terrainRgb(geo, k, Y, b = cellBiome(geo, k, Y)) {
   // scorched rock darkens and reddens as it heats towards Venus
   if (b === BIOME.SCORCHED) rgb = mix(rgb, [96, 40, 30], Math.min(1, (cellTemp(geo, k, Y) - 48) / 350));
   return rgb;
+}
+
+// The Gap: dark space with a scatter of asteroids, thicker along the belt.
+function spaceRgb(geo, k) {
+  const i = k % W, j = (k / W) | 0;
+  const belt = Math.exp(-(((j - H / 2) / (H / 5)) ** 2));
+  const h = hashN(geo.x, geo.y, k, 'rock') / 4294967296;
+  if (h < 0.015 + 0.06 * belt) return mix([92, 86, 78], [150, 140, 124], h * 20 % 1);
+  const glow = 6 * belt + 4 * Math.sin(i / 17 + j / 9) ** 2;
+  return [10 + glow, 12 + glow, 20 + glow];
 }
 
 /**

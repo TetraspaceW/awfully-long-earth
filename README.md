@@ -237,8 +237,35 @@ systems, so a cetacean language sounds like *K'iichoi* and a saurian one like
 *Zhaskaan*.
 
 Humans stay near Terra: other hominids appear a few hundred sheets out, and
-other branches of life about a thousand sheets out. Snowball and Venusian worlds
-have no sapient lineage. The **Species** map mode colours peoples by lineage.
+other branches of life about a thousand sheets out. Snowball and Venusian worlds,
+small worlds and the Gap have no sapient lineage. The **Species** map mode colours
+peoples by lineage.
+
+### Other Earths
+
+Go back far enough and it isn't only history that parts from Terra's: the sky
+and the planet do too (`src/planet.js`). Each sheet is one world, so its
+planet is drawn once per sheet, and the odds of each outcome depend on its point of divergence:
+
+| Divergence | What can differ |
+|---|---|
+| Under 50 million years | Nothing: the Solar System runs as it did for Terra |
+| Over 50 million years | The astrodynamics. The Solar System's orbits are chaotic and can't be traced back this far, so the world gets its own axial tilt, length of day and year, and an orbit a little nearer or further out (a few °C warmer or colder). These spread out fully by 500 million years. The chaos can be violent too: the further back a world parted, the likelier (up to one in five) that Earth has since been thrown onto a much nearer orbit (a hothouse or a runaway greenhouse), a further one (deep ice), or lost altogether, in a collision or flung out of the Solar System, leaving **the Gap** |
+| Over 4.51 billion years (the giant impact) | The Moon. A world may have no Moon, two, or a far bigger one. Without a Moon to steady it, its axis can lie anywhere, and with no tides to brake it, its day is short |
+| Over 4.54 billion years (Earth's assembly, complete by 4.57 billion) | The planet itself. One in two is still an Earth. Otherwise it is an **ocean world** (a few islands), a **small world** (a Mars: airless, frozen, dry basins, lifeless), or the Gap: no Earth ever formed, just a belt of asteroids where it should be |
+| Over 4.57 billion years | The star: a dim orange dwarf or a hot white star in place of the Sun |
+
+Axial tilt changes the climate: more tilt spreads warmth towards the poles, and
+past about 54° the poles are warmer than the equator over the year. None of this
+jumps at a sheet edge: a world's orbit, tilt, sea level and air blend into its
+neighbours' over the outer 24 cells, meeting half and half at the edge, so
+coasts sink into an ocean world's sea or the Gap's emptiness, seas freeze as
+they near open space, and a Mars's barren rock gives way to its neighbours'
+land along a ragged line (`src/geo/blend.js`). The panel
+describes each world's planet and sky once they can differ. Worlds with their
+own sky, and the first lost or thrown Earths, start a few hundred sheets out.
+About 1,000 sheets out a twentieth of worlds are past Earth's formation; at
+10,000 sheets it is about three in five.
 
 ### Climate
 
@@ -254,13 +281,33 @@ through the broad-scale octaves, so it does so gradually over many sheets.
 Snowball and Venusian worlds are uninhabited. The panel names each sheet's
 climate, and the map tooltip gives each cell's temperature.
 
+### Climate bands
+
+Every world has poles and an equator, but not every world's north points the
+same way, and the belts still run on across sheet edges (`src/geo/bands.js`).
+A stripe pattern whose direction changes from place to place has to bend, and
+where it can't bend far enough it breaks, as a fingerprint's ridges do. So the
+belts are phasor noise: overlapping wave patterns, each one band period long,
+pointing along a smooth orientation field that turns over a few tens of sheets.
+Where the patterns agree the belts are straight, where the field turns they
+bend, and where neighbouring patterns fall out of step a belt forks; there the
+latitude fades to the mid-latitudes rather than jump. Terra and its eight
+neighbours keep the plain layout (north up, poles at the top and bottom edges),
+and north is let go gradually over the next several sheets.
+
 ## Assumptions and liberties
 
-- **Geometry**: each sheet is an equirectangular Earth-sized map, and Big Earth is
-  an endless flat plane of them. Climate bands repeat within every row of sheets, so
-  Terra's Arctic and Antarctic sit against cold belts on the neighbouring sheets.
-  With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land,
-  bent near Terra's edges so its coastlines continue. Physics, such as what holds an
+- **Geometry**: each sheet is an Earth-sized map, and Big Earth is an endless flat
+  plane of them. Each sheet has polar and equatorial belts a sheet-height apart,
+  but which way its north points varies across the plane (see **Climate bands**
+  below). Around Terra north is up and the belts repeat along every row of
+  sheets, so Terra's Arctic and Antarctic sit against cold belts on the
+  neighbouring sheets. With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land
+  and to Terra's spectrum: continents of the same size, coastlines as intricate.
+  It is bent near Terra's edges so its coastlines continue. Terra's own relief
+  is synthetic (only its outlines are real), textured with the same kinds of
+  hills, uplands and ridged ranges as every other sheet, its real mountain
+  ranges tapering into the lowlands. Physics, such as what holds an
   infinite plane together, is ignored.
 - **Earth's record (1–2000 CE)** is hand-authored at 250-year snapshots on
   provinces that are modern countries, with the big ones split. Borders are coarse.
@@ -286,6 +333,8 @@ src/index.js    the package's public API
 src/core/       frame (grid, coordinates, timeline, eras), random, util
 src/geo/        sheet geography and the Atlas; public entry geo/index.js
 src/macro.js    drift from Terra, macro targets, interworld federations
+src/species.js  which lineage became sapient where
+src/planet.js   other Earths: each world's planet and sky
 src/world/      the World and its snapshots; population, economy, queries
 src/history/    sheet generation: the backstory millennium as a pipeline of systems
 src/terra.js    real Earth's 1-2000 CE record

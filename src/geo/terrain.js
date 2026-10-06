@@ -2,20 +2,29 @@
 // temperature and moisture as noise over global cell coordinates, so they run
 // on seamlessly across sheet edges.
 
-import { W, H, latOf, WORLD_W } from '../core/frame.js';
+import { W, H, WORLD_W } from '../core/frame.js';
 import { fbm } from '../core/random.js';
 
 const LAND_BIAS = 0.1;   // tuned so sheets average roughly Earth's 30% land
 const BLEND = 40;        // cells over which neighbours bend towards Terra's edge
 
+// Scales are set so generated land matches Terra's spectrum: continents a few
+// tens of cells across (value noise on a lattice of L cells is mostly at
+// wavelengths over 2L), and coastlines as intricate as Terra's.
+const CONTINENT = 32;    // lattice of the main octave, cells
+const WARP = 64;         // scale of the domain warp that bends coastlines
+const RIDGES = 64;       // scale of mountain chains
+
 export function noiseElev(seed, X, Y) {
-  const wx = X + 50 * fbm(seed + 11, X, Y, 150, WORLD_W, 3);
-  const wy = Y + 50 * fbm(seed + 12, X, Y, 150, WORLD_W, 3);
-  let e = fbm(seed + 1, wx, wy, 75, WORLD_W, 5, 0.5) + 0.3 * fbm(seed + 2, X, Y, 300, WORLD_W, 2);
+  const wx = X + 21 * fbm(seed + 11, X, Y, WARP, WORLD_W, 3);
+  const wy = Y + 21 * fbm(seed + 12, X, Y, WARP, WORLD_W, 3);
+  let e = fbm(seed + 1, wx, wy, CONTINENT, WORLD_W, 6, 0.55) + 0.3 * fbm(seed + 2, X, Y, 300, WORLD_W, 2);
   e = e / 1.1 - LAND_BIAS;
   if (e > 0) {
-    const ridge = 1 - Math.abs(fbm(seed + 3, wx, wy, 150, WORLD_W, 4));
-    e += 0.55 * Math.pow(ridge, 6) * Math.min(1, e * 6);
+    const ridge = 1 - Math.abs(fbm(seed + 3, wx, wy, RIDGES, WORLD_W, 4));
+    e += 0.35 * Math.pow(ridge, 6) * Math.min(1, e * 6);
+    // hills and valleys, kept off the coast so they don't move it
+    e += 0.1 * fbm(seed + 4, X, Y, 24, WORLD_W, 4, 0.7) * Math.min(1, e * 8);
   }
   return e;
 }
@@ -25,16 +34,17 @@ export function noiseTemp(seed, X, Y) { return fbm(seed + 31, X, Y, 300, WORLD_W
 // a few big river valleys in dry lands
 export function riverNoise(seed, X, Y) { return fbm(seed + 41, X, Y, 37.5, WORLD_W, 2); }
 
-// Temperature (deg C, today) from local latitude band and elevation.
-export function baseTemp(j, e) {
-  const lat = latOf(j);
-  return 28 - 52 * Math.pow(Math.abs(lat) / 90, 1.4) - 22 * Math.max(0, e - 0.12);
+// Temperature (deg C, today) from absolute latitude (degrees) and elevation.
+// g scales the pole-to-equator gradient for a planet whose axis tilts more or
+// less than Terra's (see blend.js tiltGradient); the mean stays about the same.
+export function baseTemp(alat, e, g = 1) {
+  const f = Math.pow(alat / 90, 1.4);
+  return 28 - 52 * (g * f + (1 - g) * 0.3) - 22 * Math.max(0, e - 0.12);
 }
 
-export function baseMoist(j, coastDist, n) {
-  const lat = Math.abs(latOf(j));
+export function baseMoist(alat, coastDist, n) {
   return 0.5 + 0.38 * n + 0.28 * Math.exp(-coastDist / 10)
-    - 0.38 * Math.exp(-(((lat - 24) / 9) ** 2)) + 0.25 * Math.exp(-((lat / 10) ** 2));
+    - 0.38 * Math.exp(-(((alat - 24) / 9) ** 2)) + 0.25 * Math.exp(-((alat / 10) ** 2));
 }
 
 // Bend a neighbour's noise elevation towards Terra's fixed edge values.

@@ -6,7 +6,7 @@ top. A game uses the engine the way the explorer does: through `BigEarth`
 
 ## Units
 
-The code is 14 units, each a file or a directory. Units are **deep**: few,
+The code is 15 units, each a file or a directory. Units are **deep**: few,
 with a small public surface and their workings private. A directory unit is
 imported only through its public entry files. `npm run check:layers` enforces
 this, along with which units may depend on which, no import cycles, and no
@@ -19,7 +19,8 @@ DOM outside `src/ui`.
 | `names.js` | Phonologies; place, people and ruler names | itself | core |
 | `macro.js` | The macro layer: point of divergence and drift from Terra, development, state-share and unity targets, territorial federations. Pure functions of (seed, position, year) | itself | core |
 | `species.js` | Which lineage became sapient where (from the point of divergence), and what each species is like | itself | core, macro |
-| `geo/` | Physical geography of a sheet, built and cached per seed by an `Atlas`. Private: `climate.js` (sea level, ice, climate field, biomes), `terrain.js`, `provinces.js`, `terra.js` (real Earth's sheet) | `index.js` | core, data |
+| `planet.js` | What kind of planet each sheet is, and its sky: tilt, day, year, orbit, moons, star (from the point of divergence) | itself | core, macro |
+| `geo/` | Physical geography of a sheet, built and cached per seed by an `Atlas`. Private: `climate.js` (sea level, ice, climate field, biomes), `bands.js` (which way each place's north points: continuous climate belts), `blend.js` (each world's planet, blended into its neighbours at the edges), `terrain.js`, `provinces.js`, `terra.js` (real Earth's sheet) | `index.js` | core, data, planet |
 | `world/` | `world.js`: `World` (registries of peoples, states, blocs, generated tiles) and snapshots. `stats.js`: population, economy, queries. Private: `save.js` (the save format) | `world.js`, `stats.js` | core, geo, names, data |
 | `history/` | Sheet generation. Private: `kernel.js` (`SheetRun`), `chronicle.js`, the systems in `nature.js` and `politics.js`, `forward.js`, `naming.js` | `index.js` | core, geo, macro, species, world, names |
 | `terra.js` | Writes Terra's 1–2000 CE record into a World | itself | core, geo, world, names, data |
@@ -37,7 +38,9 @@ only the engine, the renderer and core.
 - **Sheet** (`geo/index.js`): one Earth-sized map, a 240 × 120 grid of cells.
   Geography is a pure function of `(seed, x, y)` and is never saved. Terra
   (0, 0) is real Earth and is the same for every seed. Its cells are grouped
-  into **provinces** (`regions`), the units history happens on.
+  into **provinces** (`regions`), the units history happens on. `sheet.planet`
+  (`planet.js`) says what kind of planet it is: far enough from Terra, an ocean
+  world, a small barren world, or the Gap, a sheet with no land and no provinces.
 - **Tile** (`world/world.js`, `TileHistory`): one sheet's backstory millennium,
   stored as 5 **snapshots** 250 years apart. A snapshot is three arrays over
   the sheet's provinces: `owner` (polity id), `culture` (people id) and `tech`.
@@ -135,6 +138,7 @@ earth.cell(2, 0, 120, 60);        // biome, temperature, province, owner, people
 earth.province(2, 0, 17);         // one province and its state
 earth.players(2000, null, 10);    // leading powers (blocs count as one)
 earth.profile(pid);               // a state's government, peoples, backstory
+earth.planet(2, 0);               // its planet and sky; earth.climate(2, 0) is null on an airless world
 earth.raster(2, 0, 'political');  // RGBA pixels, 240 x 120
 earth.world.ext.myGame = { … };   // saved with the world
 const json = earth.save();        // BigEarth.load(json)

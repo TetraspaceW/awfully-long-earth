@@ -33,19 +33,24 @@ export function tempOffset(Y) {
 
 export const BIOME = {
   OCEAN: 0, ICE: 1, TUNDRA: 2, TAIGA: 3, MOUNTAIN: 4, DESERT: 5, STEPPE: 6,
-  TEMPERATE: 7, SAVANNA: 8, TROPICAL: 9, FERTILE: 10, HOTHOUSE: 11, SCORCHED: 12,
+  TEMPERATE: 7, SAVANNA: 8, TROPICAL: 9, FERTILE: 10, HOTHOUSE: 11, SCORCHED: 12, BARREN: 13,
 };
 export const BIOME_NAMES = ['Ocean', 'Ice', 'Tundra', 'Taiga', 'Mountains', 'Desert', 'Steppe',
-  'Temperate forest', 'Savanna', 'Tropical forest', 'River valley', 'Hothouse swamp', 'Scorched rock'];
+  'Temperate forest', 'Savanna', 'Tropical forest', 'River valley', 'Hothouse swamp', 'Scorched rock', 'Barren regolith'];
 // habitability: how many people a cell of each biome supports, relative to temperate forest
-export const HAB = [0, 0, 0.04, 0.15, 0.25, 0.04, 0.45, 1.0, 0.6, 0.55, 1.3, 0.1, 0];
+export const HAB = [0, 0, 0.04, 0.15, 0.25, 0.04, 0.45, 1.0, 0.6, 0.55, 1.3, 0.1, 0, 0];
 export const NB = BIOME_NAMES.length;
 
 // moisture at or above this marks a fertile river valley
 export const FERTILE_MOIST = 1.5;
+// moisture marking airless land, where nothing grows whatever the temperature
+export const BARREN_MOIST = -100;
+// what is over a cell: air, none (a small world's barren rock and dry basins), or open space (the Gap)
+export const SURFACE = { AIR: 0, AIRLESS: 1, SPACE: 2 };
 
 export function classify(e, T, M, sl) {
   if (e < sl) return BIOME.OCEAN;
+  if (M <= BARREN_MOIST / 2) return BIOME.BARREN;
   if (T < -9) return BIOME.ICE;
   if (T > 48) return BIOME.SCORCHED;
   if (T > 34) return BIOME.HOTHOUSE;
@@ -132,9 +137,13 @@ export function regionCapacity(r, Y) {
 export function cellTemp(geo, k, Y) { return geo.temp[k] + tempOffset(Y); }
 
 // What the sea is doing at an ocean cell: frozen over, open water, steaming, or
-// boiled away to bare seabed.
-export const SEA_STATES = { ice: 'Frozen ocean', water: 'Ocean', steam: 'Steaming ocean', dry: 'Boiled-off seabed' };
+// boiled away to bare seabed. A small world never kept its seas (basin), and
+// the Gap has no planet at all (void).
+export const SEA_STATES = { ice: 'Frozen ocean', water: 'Ocean', steam: 'Steaming ocean', dry: 'Boiled-off seabed', basin: 'Dry basin', void: 'Asteroid belt' };
 export function seaState(geo, k, Y) {
+  const s = geo.surface ? geo.surface[k] : SURFACE.AIR;
+  if (s === SURFACE.SPACE) return 'void';
+  if (s === SURFACE.AIRLESS) return 'basin';
   const T = cellTemp(geo, k, Y);
   return T < -12 ? 'ice' : T > 110 ? 'dry' : T > 60 ? 'steam' : 'water';
 }

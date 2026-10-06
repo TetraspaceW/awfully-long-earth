@@ -1,5 +1,6 @@
 // Terra's physical geography: Natural Earth country outlines, rasterised to the
-// sheet grid, with hand-placed relief and climate, and its provinces (modern
+// sheet grid, with hand-placed climate, relief textured like every other
+// sheet's, and its provinces (modern
 // countries, the big ones split so history has something to hold onto).
 //
 // Terra's geography does not depend on the world seed.
@@ -8,6 +9,8 @@ import { W, H, CELLS, lonOf, latOf } from '../core/frame.js';
 import { EARTH_GEO } from '../data/earth-geo.js';
 import { bfsDistance, growInto } from './provinces.js';
 import { regionCapacity } from './climate.js';
+import { clamp, fade } from '../core/util.js';
+import { fbm, hashN } from '../core/random.js';
 
 function decodeRle(rle) {
   const out = new Int16Array(CELLS);
@@ -56,6 +59,30 @@ const EARTH_MOUNTAINS = [[73, 104, 27, 38, 0.4], [-79, -64, -40, 6, 0.32], [-125
   [70, 95, 40, 50, 0.22], [30, 44, 37, 41, 0.12]];
 const inBox = (b, lon, lat) => lon >= b[0] && lon <= b[1] && lat >= b[2] && lat <= b[3];
 
+// Terra's relief, with the same kinds of texture as every generated sheet
+// (terrain.js): land rising smoothly inland, broad swells, hills and valleys,
+// and its real mountain ranges as ridged belts that taper into the lowlands
+// over a few degrees rather than stand as blocks.
+const TERRA_SEED = hashN('terra-relief');
+const RANGE_TAPER = 4;   // degrees
+// 0.5 at a range's edge, rising to 1 inside and falling to 0 outside over the taper
+const edge = (t) => fade(clamp(0.5 + t / (2 * RANGE_TAPER), 0, 1));
+function landRelief(i, j, lon, lat, coast, antarctic) {
+  let e = 0.04 + 0.16 * (1 - Math.exp(-coast / 10));
+  e += 0.08 * fbm(TERRA_SEED + 1, i, j, 120, W, 2);
+  // uplands everywhere, as on every sheet, but lower than its named ranges
+  const upland = 1 - Math.abs(fbm(TERRA_SEED + 6, i, j, 75, W, 4));
+  e += 0.25 * Math.pow(upland, 6) * Math.min(1, e * 6);
+  const ridge = 1 - Math.abs(fbm(TERRA_SEED + 3, i, j, 30, W, 4));
+  for (const [lon0, lon1, lat0, lat1, amp] of EARTH_MOUNTAINS) {
+    const w = edge(lon - lon0) * edge(lon1 - lon) * edge(lat - lat0) * edge(lat1 - lat);
+    if (w > 0) e += amp * w * (0.45 + 0.9 * ridge * ridge);
+  }
+  if (antarctic) e += 0.2 * (1 - Math.exp(-coast / 4));
+  e += 0.12 * fbm(TERRA_SEED + 4, i, j, 24, W, 4, 0.7) * Math.min(1, e * 8);
+  return e;
+}
+
 // Terra's base rasters: country grid, land mask, elevation and moisture overrides
 // (-1 = none; 2 marks a fertile river valley).
 let terraBase = null;
@@ -70,15 +97,14 @@ export function terraTerrain() {
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const k = j * W + i, lon = lonOf(i), lat = latOf(j);
     if (land[k]) {
-      let e = 0.04 + 0.012 * Math.min(dist[k], 20);
-      for (const m of EARTH_MOUNTAINS) if (inBox(m, lon, lat)) e += m[4];
-      if (cgrid[k] >= 0 && EARTH_GEO.countries[cgrid[k]].a3 === 'ATA') e += 0.2;
-      elev[k] = e;
+      elev[k] = Math.max(0.005, landRelief(i, j, lon, lat, dist[k], cgrid[k] >= 0 && EARTH_GEO.countries[cgrid[k]].a3 === 'ATA'));
       for (const d of EARTH_DESERTS) if (inBox(d, lon, lat)) moistOverride[k] = 0.1;
       for (const r of EARTH_RIVERS) if (inBox(r, lon, lat)) moistOverride[k] = 2; // marker: fertile valley
     } else {
+      // shelves (one cell out) surface in glacial times; beyond, the floor deepens smoothly
       const d = dist[k];
-      elev[k] = d <= 1 ? -0.03 : d === 2 ? -0.07 : -0.12 - 0.01 * Math.min(d, 30);
+      const floor = 0.015 * fbm(TERRA_SEED + 5, i, j, 30, W, 3, 0.6);
+      elev[k] = d <= 1 ? -0.03 : d === 2 ? -0.07 : -0.1 - 0.32 * (1 - Math.exp(-(d - 2) / 9)) + floor;
     }
   }
   terraBase = { cgrid, land, elev, moistOverride };

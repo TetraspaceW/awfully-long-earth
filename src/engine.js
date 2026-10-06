@@ -22,6 +22,7 @@ import { nationProfile } from './profile.js';
 import { BIOME, BIOME_NAMES, cellBiome, cellTemp, seaState, climateName, SEA_STATES } from './geo/index.js';
 import { divergence, eraShift, federationAt } from './macro.js';
 import { cultureSpecies, habitatName, lineageAt, refreshSpecies, speciesInfo } from './species.js';
+import { habitable, planetNote, PLANET_KINDS } from './planet.js';
 import { rasterTile } from './render.js';
 
 // Terra's present-day neighbours, revealed in a new world.
@@ -156,10 +157,20 @@ export class BigEarth extends Emitter {
   polity(pid) { return this.world.polities.get(pid); }
   culture(cid) { return this.world.cultures.get(cid); }
 
-  // Mean warming against Terra and its name, for a sheet.
+  // Mean warming against Terra and its name, for a sheet: its place in the
+  // climate field plus its orbit. Null for the Gap (no planet) and a small
+  // world (no air to have a climate).
   climate(x, y) {
-    const dT = this.world.atlas.climateAt(x + 0.5, y + 0.5);
+    const p = this.planet(x, y);
+    if (!habitable(p)) return null;
+    const dT = this.world.atlas.climateAt(x + 0.5, y + 0.5) + p.dT;
     return { dT, name: climateName(dT) };
+  }
+  // What kind of planet this sheet is (see planet.js), with `name` and
+  // `note`, a description of how it and its sky differ from Terra's (or null).
+  planet(x, y) {
+    const p = this.sheet(x, y).planet;
+    return { ...p, name: PLANET_KINDS[p.kind], note: planetNote(p) };
   }
   // Years this sheet's development runs ahead (+) or behind (-) Terra's.
   drift(x, y, Y = this.year) { return eraShift(this.seed, x + 0.5, y + 0.5, Y); }
@@ -172,7 +183,7 @@ export class BigEarth extends Emitter {
   // The sheet's sapient lineage: once revealed, that of most of its peoples;
   // otherwise the one expected at its centre. `notYet` when the lineage has not
   // become sapient by this year; null on a snowball or runaway-greenhouse world,
-  // where nothing does, and for Terra's own humans.
+  // a small world or the Gap, where nothing does, and for Terra's own humans.
   lineage(x, y, Y = this.year) {
     const st = this.stateAt(x, y, Y);
     let sp = null;
@@ -187,8 +198,8 @@ export class BigEarth extends Emitter {
       if (top) sp = { ...top[0], habitat: top[2] };
     }
     if (!sp) {
-      const { dT } = this.climate(x, y);
-      if (dT <= -35 || dT >= 120) return null;
+      const c = this.climate(x, y);
+      if (!c || c.dT <= -35 || c.dT >= 120) return null;
       const lin = lineageAt(this.seed, x + 0.5, y + 0.5);
       sp = { ...speciesInfo(lin.species, lin.pod, lin.variant), habitat: habitatName(lin) };
     }
