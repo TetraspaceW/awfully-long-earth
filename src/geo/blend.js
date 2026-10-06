@@ -15,7 +15,7 @@ import { noiseElev } from './terrain.js';
 export const EDGE = 24;          // cells
 const OCEAN_WORLD_LAND = 0.03;   // share of an ocean world above its sea
 const SMALL_WORLD_LAND = 0.75;   // the rest of a small world is dry basins
-const GAP_SINK = 1.5;            // elevation units: nothing stays above the sea
+const GAP_SINK = 2.5;            // elevation units: at half, nothing stays above the sea
 export const SMALL_WORLD_COLD = -60;   // deg C, against Terra: a Mars
 export const SPACE_TEMP = -270;
 

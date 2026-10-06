@@ -302,8 +302,12 @@ and north is let go gradually over the next several sheets.
   but which way its north points varies across the plane (see **Climate bands**
   below). Around Terra north is up and the belts repeat along every row of
   sheets, so Terra's Arctic and Antarctic sit against cold belts on the
-  neighbouring sheets. With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land,
-  bent near Terra's edges so its coastlines continue. Physics, such as what holds an
+  neighbouring sheets. With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land
+  and to Terra's spectrum: continents of the same size, coastlines as intricate.
+  It is bent near Terra's edges so its coastlines continue. Terra's own relief
+  is synthetic (only its outlines are real), textured with the same kinds of
+  hills, uplands and ridged ranges as every other sheet, its real mountain
+  ranges tapering into the lowlands. Physics, such as what holds an
   infinite plane together, is ignored.
 - **Earth's record (1–2000 CE)** is hand-authored at 250-year snapshots on
   provinces that are modern countries, with the big ones split. Borders are coarse.

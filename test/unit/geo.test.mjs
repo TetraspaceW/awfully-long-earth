@@ -77,12 +77,15 @@ test('other planets blend into their neighbours at the edges', async () => {
   }
   assert.ok(pairs.length >= 2);
   const atlas = new Atlas(20000);
+  // no step at the edge steeper than the steepest within either sheet
+  const steepest = (g) => { let m = 0; for (let j = 0; j < H; j++) for (let i = 0; i < W - 1; i++) if (g.elev[j * W + i] >= 0 || g.elev[j * W + i + 1] >= 0) m = Math.max(m, Math.abs(g.elev[j * W + i] - g.elev[j * W + i + 1])); return m; };
   for (const [x, y] of pairs) {
     const A = atlas.sheet(x, y), B = atlas.sheet(x + 1, y);
+    const cliff = Math.max(steepest(A), steepest(B));
     for (let j = 0; j < H; j++) {
       const ka = j * W + W - 1, kb = j * W;
       assert.ok(Math.abs(A.temp[ka] - B.temp[kb]) < 25, `temperature jumps at ${x},${y} row ${j}: ${A.temp[ka]} vs ${B.temp[kb]}`);
-      assert.ok(Math.abs(A.elev[ka] - B.elev[kb]) < 0.3 || A.elev[ka] < 0 && B.elev[kb] < 0, `a cliff at ${x},${y} row ${j}`);
+      assert.ok(Math.abs(A.elev[ka] - B.elev[kb]) <= cliff || A.elev[ka] < 0 && B.elev[kb] < 0, `a cliff at ${x},${y} row ${j}`);
     }
   }
 });
