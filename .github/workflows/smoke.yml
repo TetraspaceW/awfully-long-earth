@@ -1,0 +1,19 @@
+name: Smoke test
+
+on:
+  push:
+    branches: [mistress]
+  pull_request:
+    branches: [mistress]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run test:smoke
