@@ -161,9 +161,10 @@ varies somewhat during the fast 2000–3000 CE unification.
 
 Terra's record (the area of sheet 0,0 in 1–2000 CE) is the one fixed point. Every
 other world has a **point of divergence**: how long ago its history parted from
-Terra's. A world runs half that ahead of or behind Terra's timeline. Its technology,
-institutions, nation-state era, colonial window and federations all follow its own
-effective year, while sea level and ice follow real time.
+Terra's. A world runs ahead of or behind Terra's timeline by up to half that (see
+below). Its technology, institutions, nation-state era, colonial window and
+federations all follow its own effective year, while sea level and ice follow real
+time.
 
 Between neighbouring worlds the point of divergence swings by at most about
 max(1,000 years, 20% of itself) (`POD_SWING` in `src/macro.js`). Near Terra it grows
@@ -179,10 +180,30 @@ the difference is arbitrary far enough out:
 | 100,000 sheets | around 10<sup>34</sup> years |
 
 This holds around every world, not just Terra: each has close neighbours and wildly
-different far-offs. Worlds living before 300,000 BCE have no sapient species yet. Worlds far
-ahead stay at the top of the technology scale, and their federations rise and fall
-in cycles. The panel shows each sheet's divergence and how far it runs ahead or
-behind.
+different far-offs.
+
+How far ahead or behind a world runs is not simply half its divergence. Half the
+divergence is only the limit. A smooth field puts each world behind (four in five)
+or ahead (one in five), and the size of the gap on each side follows a
+**log-logistic distribution** (a power law), cut off at half the divergence. Near
+Terra the cutoff dominates, so its neighbours run within centuries of it. As the
+divergence grows the cutoff matters less, and in the limit the gap settles to a
+fixed shape:
+
+| Where a world sits, far from Terra | Share of worlds |
+|---|---|
+| Within 2,000 years ahead of Terra's era | 8% |
+| More than 10,000 years ahead | 4% |
+| Within 2,000 years behind | 8% |
+| 2,000 to 300,000 years behind: their own Stone Ages and early histories | 12% |
+| Before 300,000 BCE: no species there has become sapient yet | 60% |
+
+The share of pre-sapient worlds grows with distance from Terra: about 4% at 300
+sheets, a fifth at 1,000, two fifths at 10,000, heading for 60%. Far-future
+worlds stay rare throughout. Where a world sits in the distribution is a smooth
+field, so neighbours stay alike (`eraGap` in `src/macro.js`). Worlds far ahead stay
+at the top of the technology scale, and their federations rise and fall in cycles.
+The panel shows each sheet's divergence and how far it runs ahead or behind.
 
 The field is a pure function of position, so it does not depend on survey order. It
 is built from octaves of smooth noise 3, 9, 27, … sheets across, anchored at zero

@@ -12,7 +12,7 @@ import { clamp } from '../core/util.js';
 import { STEPS, STEPS_PER_SNAP, STEP_YEARS } from '../core/frame.js';
 import { cloneSnap } from '../world/world.js';
 import { newCulture } from './naming.js';
-import { TileSim } from './sim.js';
+import { TileSim, UNION_ERA } from './sim.js';
 
 // backward generation drifts technology towards this share of the era ceiling,
 // matching where forward runs settle
@@ -137,7 +137,8 @@ export class ReverseSim extends TileSim {
     // steer towards the macro target for how unified the sheet is
     const consol = this.ctl.consol;
     const merges = Math.min(3, Math.ceil(consol));
-    for (let i = 0; i < merges; i++) if (rng.chance(clamp(0.15 * consol ** 1.5, 0.01, 0.85))) this.unfragment(Y, Yp, consol > 1.5 ? 12 : 5);
+    const maxMerge = consol <= 1.5 ? 5 : this.E(Yp) >= UNION_ERA ? Infinity : 12;
+    for (let i = 0; i < merges; i++) if (rng.chance(clamp(0.15 * consol ** 1.5, 0.01, 0.85))) this.unfragment(Y, Yp, maxMerge);
     if (consol < 1) {
       const splits = Math.min(3, Math.ceil(1 / consol - 1));
       for (let i = 0; i < splits; i++) if (rng.chance(clamp(0.5 * (1 / consol - 1), 0, 0.85))) this.unmerge(Y, Yp);
@@ -274,7 +275,8 @@ export class ReverseSim extends TileSim {
     if (group.length < 2) return;
     const regs = group.flatMap((g) => mem.get(g));
     const capR = mem.get(a)[0];
-    const big = this.createPolity(capR, Yp, null, { type: regs.length >= 10 ? 'empire' : undefined });
+    const unionEra = this.E(Yp) >= UNION_ERA;
+    const big = this.createPolity(capR, Yp, null, { type: unionEra ? rng.pick(['union', 'federation']) : regs.length >= 10 ? 'empire' : undefined });
     if (!big) return;
     const yy = Y - rng.int(0, 49);
     for (const r of regs) this.s.owner[r] = big;

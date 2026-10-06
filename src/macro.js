@@ -78,8 +78,8 @@ export const bias = (seed, tag, gx, gy, Y) => Math.min(1.5, 0.35 * driftYears(gx
 // Point of divergence. Every world has one: how long ago its history parted
 // from Terra's. Between neighbouring worlds it swings by at most about
 // max(1000 years, POD_SWING of itself), so it grows without limit with distance,
-// geometrically once it is large. A world runs half its divergence ahead of or
-// behind Terra's timeline.
+// geometrically once it is large. A world runs at most half its divergence
+// ahead of or behind Terra's timeline, and usually far less (see eraGap).
 //
 // Implemented as a smooth "divergence coordinate" u, a sum of noise octaves
 // anchored at zero over Terra's area, whose step between neighbouring sheets is at most about 1. A
@@ -132,8 +132,9 @@ function podCoord(seed, gx, gy, Y) {
 // How long ago this place's history parted from Terra's.
 export function divergence(seed, gx, gy, Y) { return Math.round(podYears(podCoord(seed, gx, gy, Y))); }
 
-// Years this place runs ahead (+) or behind (-) Terra's timeline: half its
-// divergence, plus a wander along Terra's own column away from 1-2000 CE.
+// Years this place runs ahead (+) or behind (-) Terra's timeline: at most half
+// its divergence (see eraGap), plus a wander along Terra's own column away from
+// 1-2000 CE.
 const shiftMemo = new Map();
 export function eraShift(seed, gx, gy, Y) {
   const key = `${seed}|${gx}|${gy}|${Y}`;
@@ -146,10 +147,61 @@ export function eraShift(seed, gx, gy, Y) {
   return v;
 }
 
+// How far ahead or behind a world runs, given its divergence. A world can be at
+// most half its divergence ahead or behind. Within that, a smooth field puts it
+// behind (ERA_BEHIND_SHARE of worlds) or ahead, and the size of the gap on each
+// side follows a log-logistic distribution: a power law, CDF
+// F(m) = 1 / (1 + (m / scale)^-shape), truncated at half the divergence.
+// Near Terra the truncation dominates (neighbours run within centuries of it);
+// as divergence grows it matters less, and in the limit the gap settles to a
+// fixed shape:
+//   ahead (a fifth of worlds): 8% of all worlds within 2,000 years ahead, and a
+//     steep tail, so far-future worlds stay rare (4% beyond 10,000 years);
+//   behind (four fifths): 8% within 2,000 years behind, 12% further back in
+//     their own Stone Ages and early histories, and 60% before 300,000 BCE:
+//     no species there has become sapient yet.
+// So the share of pre-sapient worlds grows with distance from Terra towards 60%.
+// Fitted anchors: ahead F(2,000) = 0.4, F(10,000) = 0.8; behind F(2,000) = 0.1,
+// F(300,000) = 0.25.
+export const ERA_BEHIND_SHARE = 0.8;
+export const ERA_AHEAD = { scale: 2878, shape: 1.113 };
+export const ERA_BEHIND = { scale: 4.48e7, shape: 0.2193 };
+const ERA_OCTAVES = [4, 12, 36];   // sheets
+const ERA_SD = 0.625;              // spread of the summed octaves (measured)
+
+// Standard normal CDF (Abramowitz & Stegun 7.1.26).
+function normalCdf(z) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const e = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-z * z / 2);
+  return z >= 0 ? 1 - e / 2 : e / 2;
+}
+
+// A smooth field, roughly uniform on (0, 1): where this place sits in the gap's distribution.
+function eraQuantile(seed, gx, gy, Y) {
+  let s = 0;
+  for (const sc of ERA_OCTAVES) s += 2 * field(seed, 'era' + sc, gx, gy, Y, 8000, sc) - 1;
+  return normalCdf(s / ERA_SD);
+}
+
+// The gap at quantile q (0..1: below ERA_BEHIND_SHARE behind, above it ahead) for a world
+// that diverged `pod` years ago.
+export function eraGap(q, pod) {
+  const L = pod / 2;
+  if (L <= 0) return 0;
+  const behind = q < ERA_BEHIND_SHARE;
+  const side = behind ? ERA_BEHIND : ERA_AHEAD;
+  // quantile within the side, growing away from Terra's era
+  const p = clamp(behind ? 1 - q / ERA_BEHIND_SHARE : (q - ERA_BEHIND_SHARE) / (1 - ERA_BEHIND_SHARE), 1e-9, 1 - 1e-9);
+  const F = (m) => 1 / (1 + (m / side.scale) ** -side.shape);
+  const pt = p * F(L);                                     // truncated at L
+  const m = Math.min(L, side.scale * (pt / (1 - pt)) ** (1 / side.shape));
+  return behind ? -m : m;
+}
+
 function computeShift(seed, gx, gy, Y) {
   const { dt } = terraDistance(gx, gy, Y);
   const u = podCoord(seed, gx, gy, Y);
-  const space = Math.sign(u) * podYears(u) / 2;
+  const space = eraGap(eraQuantile(seed, gx, gy, Y), podYears(u));
   const time = Math.sqrt(800000 * dt) * (2 * field(seed, 'shiftT', gx, gy, Y, 4000, 10) - 1) * 1.6;
   return Math.round(space + time);
 }

@@ -182,6 +182,16 @@ for (const t of [-1, -2, -3]) {
   const d1 = at(10000), d2 = at(100000);
   console.log(`divergence keeps growing: median ${d1.toExponential(1)} years at 10,000 sheets, ${d2.toExponential(1)} at 100,000`);
   assert.ok(d2 > 1e6 * d1 && Number.isFinite(d2), 'divergence levels off far away');
+  // how far ahead or behind far worlds run: mostly near Terra's era or not yet
+  // sapient, rarely far in the future; pre-sapient worlds grow towards 60%
+  const { eraGap } = await import('../src/macro.js');
+  let pre = 0, farFuture = 0;
+  for (let i = 0; i < 10000; i++) { const g = eraGap((i + 0.5) / 10000, 1e300); if (g < -3e5) pre++; if (g > 1e4) farFuture++; }
+  console.log(`era gap in the limit: ${(pre / 100).toFixed(0)}% pre-sapient, ${(farFuture / 100).toFixed(0)}% over 10,000 years ahead`);
+  assert.ok(pre > 5000 && pre < 7000 && farFuture < 800, 'far worlds: a majority pre-sapient, few far-future');
+  let close = 0, n = 0;
+  for (let sd = 1; sd <= 10; sd++) for (const [x, y] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { n++; if (Math.abs(eraShift(sd, x + 0.5, y + 0.5, 2000)) < 500) close++; }
+  assert.equal(close, n, "Terra's neighbours run within centuries of it");
   assert.ok(near <= 500, 'Terra\'s present-day neighbours drift too far');
   assert.ok(farDeep >= 1, 'far reaches never get strange enough');
 }

@@ -67,6 +67,12 @@ function federationPolity(world, fed, Y) {
   return id;
 }
 
+// The unification era, in local effective years. Going backwards from it, a
+// federation's departing provinces are one union per connected piece rather
+// than one state per people, and states of any size may be merged to meet the
+// macro layer's unity target, as forward runs unite them.
+export const UNION_ERA = 2600;
+
 export class TileSim {
   /**
    * @param {import('../world/world.js').World} world
@@ -1166,7 +1172,12 @@ export class TileSim {
       out.get(o).push(r);
     }
     for (const [G, regs] of out) {
-      for (const comp of this.components(regs).flatMap((c) => this.byCulture(c))) {
+      // backwards in the unification era, what left a federation was a union
+      // that had acceded whole (as forward runs form them), not a scatter of
+      // national states; steering splits it further if the sheet wants more
+      const united = !forward && this.E(Yt) >= UNION_ERA;
+      const comps = this.components(regs);
+      for (const comp of united ? comps : comps.flatMap((c) => this.byCulture(c))) {
         const best = comp.reduce((a, b) => (this.s.tech[b] > this.s.tech[a] ? b : a));
         const np = this.createPolity(best, Yt, null, { type: rng.pick(['republic', 'federation', 'union']) });
         if (!np) continue;
