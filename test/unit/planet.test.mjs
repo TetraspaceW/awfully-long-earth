@@ -6,7 +6,11 @@ import { World } from '../../src/world/world.js';
 import { buildTerra } from '../../src/terra.js';
 import { generateTile } from '../../src/history/index.js';
 import { BigEarth } from '../../src/engine.js';
-import { CELLS } from '../../src/core/frame.js';
+import { CELLS, H, W } from '../../src/core/frame.js';
+
+// cells away from the sheet's edges, where the neighbouring worlds blend in
+const EDGE = 24;
+const inner = (k) => { const i = k % W, j = (k / W) | 0; return i >= EDGE && i < W - EDGE && j >= EDGE && j < H - EDGE; };
 
 // The first sheet of each kind, searching outwards from Terra in seed 20000.
 const found = new Map();
@@ -50,14 +54,15 @@ test('past the astrodynamic threshold the sky differs; past formation, the plane
 
 test('the Gap has no land and no one; a small world is barren; an ocean world is islands', () => {
   const land = (g) => { let n = 0; for (let k = 0; k < CELLS; k++) if (g.elev[k] >= 0) n++; return n / CELLS; };
+  const innerLand = (g) => { let n = 0; for (let k = 0; k < CELLS; k++) if (inner(k) && g.elev[k] >= 0) n++; return n; };
   const [gx, gy] = found.get('gap'), [sx, sy] = found.get('small'), [ox, oy] = found.get('ocean');
   const gap = buildSheet(20000, gx, gy), small = buildSheet(20000, sx, sy), ocean = buildSheet(20000, ox, oy);
-  assert.equal(land(gap), 0);
-  assert.equal(gap.regions.length, 0);
-  assert.equal(seaState(gap, 0, 2000), 'void');
-  assert.ok(Math.abs(land(ocean) - 0.03) < 0.01);
-  for (let k = 0; k < CELLS; k++) if (small.elev[k] >= 0) assert.equal(cellBiome(small, k, 2000), BIOME.BARREN);
-  assert.ok(small.regions.every((r) => r.habNow === 0));
+  assert.equal(innerLand(gap), 0);
+  assert.ok(land(gap) < 0.005, 'a Gap keeps at most a sliver of its neighbours\' land');
+  for (let k = 0; k < CELLS; k++) if (inner(k)) assert.equal(seaState(gap, k, 2000), 'void');
+  assert.ok(land(ocean) < 0.1, 'an ocean world is mostly sea');
+  for (let k = 0; k < CELLS; k++) if (inner(k) && small.elev[k] >= 0) assert.equal(cellBiome(small, k, 2000), BIOME.BARREN);
+  assert.ok(small.regions.filter((r) => r.habNow > 0).length <= small.regions.length / 10);
 
   const w = new World(20000);
   buildTerra(w);
@@ -70,5 +75,5 @@ test('the Gap has no land and no one; a small world is barren; an ocean world is
   assert.equal(e.lineage(gx, gy), null);
   assert.equal(e.lineage(sx, sy), null);
   assert.match(e.planet(gx, gy).note, /^The Gap/);
-  assert.equal(e.cell(gx, gy, 10, 10).seaName, 'Asteroid belt');
+  assert.equal(e.cell(gx, gy, 120, 60).seaName, 'Asteroid belt');
 });

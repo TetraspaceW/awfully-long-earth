@@ -2,7 +2,7 @@
 // temperature and moisture as noise over global cell coordinates, so they run
 // on seamlessly across sheet edges.
 
-import { W, H, latOf, WORLD_W } from '../core/frame.js';
+import { W, H, WORLD_W } from '../core/frame.js';
 import { fbm } from '../core/random.js';
 
 const LAND_BIAS = 0.1;   // tuned so sheets average roughly Earth's 30% land
@@ -25,26 +25,17 @@ export function noiseTemp(seed, X, Y) { return fbm(seed + 31, X, Y, 300, WORLD_W
 // a few big river valleys in dry lands
 export function riverNoise(seed, X, Y) { return fbm(seed + 41, X, Y, 37.5, WORLD_W, 2); }
 
-// Temperature (deg C, today) from local latitude band and elevation.
-export function baseTemp(j, e) {
-  const lat = latOf(j);
-  return 28 - 52 * Math.pow(Math.abs(lat) / 90, 1.4) - 22 * Math.max(0, e - 0.12);
-}
-
-// The same on a planet whose axis tilts by `tilt` degrees rather than Terra's
-// 23.4. More tilt spreads the sun's warmth towards the poles; past about 54
-// degrees the poles are warmer than the equator over the year. The mean stays
-// about the same.
-export function tiltedTemp(j, e, tilt) {
-  const g = tilt < 23.4 ? 1 + 0.25 * (23.4 - tilt) / 23.4 : Math.max(-0.6, 1 - (tilt - 23.4) / 30.6);
-  const f = Math.pow(Math.abs(latOf(j)) / 90, 1.4);
+// Temperature (deg C, today) from absolute latitude (degrees) and elevation.
+// g scales the pole-to-equator gradient for a planet whose axis tilts more or
+// less than Terra's (see blend.js tiltGradient); the mean stays about the same.
+export function baseTemp(alat, e, g = 1) {
+  const f = Math.pow(alat / 90, 1.4);
   return 28 - 52 * (g * f + (1 - g) * 0.3) - 22 * Math.max(0, e - 0.12);
 }
 
-export function baseMoist(j, coastDist, n) {
-  const lat = Math.abs(latOf(j));
+export function baseMoist(alat, coastDist, n) {
   return 0.5 + 0.38 * n + 0.28 * Math.exp(-coastDist / 10)
-    - 0.38 * Math.exp(-(((lat - 24) / 9) ** 2)) + 0.25 * Math.exp(-((lat / 10) ** 2));
+    - 0.38 * Math.exp(-(((alat - 24) / 9) ** 2)) + 0.25 * Math.exp(-((alat / 10) ** 2));
 }
 
 // Bend a neighbour's noise elevation towards Terra's fixed edge values.

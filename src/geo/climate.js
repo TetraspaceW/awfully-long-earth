@@ -45,6 +45,8 @@ export const NB = BIOME_NAMES.length;
 export const FERTILE_MOIST = 1.5;
 // moisture marking airless land, where nothing grows whatever the temperature
 export const BARREN_MOIST = -100;
+// what is over a cell: air, none (a small world's barren rock and dry basins), or open space (the Gap)
+export const SURFACE = { AIR: 0, AIRLESS: 1, SPACE: 2 };
 
 export function classify(e, T, M, sl) {
   if (e < sl) return BIOME.OCEAN;
@@ -139,9 +141,9 @@ export function cellTemp(geo, k, Y) { return geo.temp[k] + tempOffset(Y); }
 // the Gap has no planet at all (void).
 export const SEA_STATES = { ice: 'Frozen ocean', water: 'Ocean', steam: 'Steaming ocean', dry: 'Boiled-off seabed', basin: 'Dry basin', void: 'Asteroid belt' };
 export function seaState(geo, k, Y) {
-  const kind = geo.planet?.kind;
-  if (kind === 'gap') return 'void';
-  if (kind === 'small') return 'basin';
+  const s = geo.surface ? geo.surface[k] : SURFACE.AIR;
+  if (s === SURFACE.SPACE) return 'void';
+  if (s === SURFACE.AIRLESS) return 'basin';
   const T = cellTemp(geo, k, Y);
   return T < -12 ? 'ice' : T > 110 ? 'dry' : T > 60 ? 'steam' : 'water';
 }

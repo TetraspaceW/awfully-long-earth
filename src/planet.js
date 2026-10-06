@@ -17,7 +17,8 @@
 // be (the Gap). Before the Sun formed, it can circle a different star.
 //
 // A sheet is one world, so its planet is drawn once per sheet. Divergence is
-// smooth, so neighbouring worlds pass the thresholds together.
+// smooth, so neighbouring worlds pass the thresholds together, and the
+// geography blends into the neighbouring worlds' at the edges (geo/blend.js).
 
 import { isTerra } from './core/frame.js';
 import { clamp, fade } from './core/util.js';

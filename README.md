@@ -256,7 +256,12 @@ planet is drawn once per sheet, and the odds of each outcome depend on its point
 | Over 4.57 billion years | The star: a dim orange dwarf or a hot white star in place of the Sun |
 
 Axial tilt changes the climate: more tilt spreads warmth towards the poles, and
-past about 54° the poles are warmer than the equator over the year. The panel
+past about 54° the poles are warmer than the equator over the year. None of this
+jumps at a sheet edge: a world's orbit, tilt, sea level and air blend into its
+neighbours' over the outer 24 cells, meeting half and half at the edge, so
+coasts sink into an ocean world's sea or the Gap's emptiness, seas freeze as
+they near open space, and a Mars's barren rock gives way to its neighbours'
+land along a ragged line (`src/geo/blend.js`). The panel
 describes each world's planet and sky once they can differ. Worlds with their
 own sky, and the first lost or thrown Earths, start a few hundred sheets out.
 About 1,000 sheets out a twentieth of worlds are past Earth's formation; at
@@ -276,12 +281,28 @@ through the broad-scale octaves, so it does so gradually over many sheets.
 Snowball and Venusian worlds are uninhabited. The panel names each sheet's
 climate, and the map tooltip gives each cell's temperature.
 
+### Climate bands
+
+Every world has poles and an equator, but not every world's north points the
+same way, and the belts still run on across sheet edges (`src/geo/bands.js`).
+A stripe pattern whose direction changes from place to place has to bend, and
+where it can't bend far enough it breaks, as a fingerprint's ridges do. So the
+belts are phasor noise: overlapping wave patterns, each one band period long,
+pointing along a smooth orientation field that turns over a few tens of sheets.
+Where the patterns agree the belts are straight, where the field turns they
+bend, and where neighbouring patterns fall out of step a belt forks; there the
+latitude fades to the mid-latitudes rather than jump. Terra and its eight
+neighbours keep the plain layout (north up, poles at the top and bottom edges),
+and north is let go gradually over the next several sheets.
+
 ## Assumptions and liberties
 
-- **Geometry**: each sheet is an equirectangular Earth-sized map, and Big Earth is
-  an endless flat plane of them. Climate bands repeat within every row of sheets, so
-  Terra's Arctic and Antarctic sit against cold belts on the neighbouring sheets.
-  With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land,
+- **Geometry**: each sheet is an Earth-sized map, and Big Earth is an endless flat
+  plane of them. Each sheet has polar and equatorial belts a sheet-height apart,
+  but which way its north points varies across the plane (see **Climate bands**
+  below). Around Terra north is up and the belts repeat along every row of
+  sheets, so Terra's Arctic and Antarctic sit against cold belts on the
+  neighbouring sheets. With no poles there is no global gradient. Instead, see **Climate** below. Terrain is noise tuned to Earth's roughly 30% land,
   bent near Terra's edges so its coastlines continue. Physics, such as what holds an
   infinite plane together, is ignored.
 - **Earth's record (1–2000 CE)** is hand-authored at 250-year snapshots on

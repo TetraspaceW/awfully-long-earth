@@ -20,7 +20,7 @@ DOM outside `src/ui`.
 | `macro.js` | The macro layer: point of divergence and drift from Terra, development, state-share and unity targets, territorial federations. Pure functions of (seed, position, year) | itself | core |
 | `species.js` | Which lineage became sapient where (from the point of divergence), and what each species is like | itself | core, macro |
 | `planet.js` | What kind of planet each sheet is, and its sky: tilt, day, year, orbit, moons, star (from the point of divergence) | itself | core, macro |
-| `geo/` | Physical geography of a sheet, built and cached per seed by an `Atlas`. Private: `climate.js` (sea level, ice, climate field, biomes), `terrain.js`, `provinces.js`, `terra.js` (real Earth's sheet) | `index.js` | core, data, planet |
+| `geo/` | Physical geography of a sheet, built and cached per seed by an `Atlas`. Private: `climate.js` (sea level, ice, climate field, biomes), `bands.js` (which way each place's north points: continuous climate belts), `blend.js` (each world's planet, blended into its neighbours at the edges), `terrain.js`, `provinces.js`, `terra.js` (real Earth's sheet) | `index.js` | core, data, planet |
 | `world/` | `world.js`: `World` (registries of peoples, states, blocs, generated tiles) and snapshots. `stats.js`: population, economy, queries. Private: `save.js` (the save format) | `world.js`, `stats.js` | core, geo, names, data |
 | `history/` | Sheet generation. Private: `kernel.js` (`SheetRun`), `chronicle.js`, the systems in `nature.js` and `politics.js`, `forward.js`, `naming.js` | `index.js` | core, geo, macro, species, world, names |
 | `terra.js` | Writes Terra's 1–2000 CE record into a World | itself | core, geo, world, names, data |
