@@ -61,6 +61,7 @@ test('save and load round-trip, keeping game data in ext', () => {
   assert.equal(back.save(), json);
   assert.deepEqual(back.world.ext, { game: { turn: 3 } });
   assert.throws(() => World.deserialize({ v: 999 }), /unknown save version/);
+  assert.throws(() => World.deserialize({ ...JSON.parse(json), v: 1 }), /unknown save version/);
 });
 
 test('custom map modes plug into the rasteriser', () => {

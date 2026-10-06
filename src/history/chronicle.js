@@ -9,9 +9,6 @@ import { DIR_NAME } from '../core/frame.js';
 import { rulerName } from '../names.js';
 import { regionName } from './naming.js';
 
-// beyond Terra's present the future is speculation; far from Terra, a sheet can
-// reach those levels in what is Terra's distant past
-const milestoneText = (t, r, Y) => (Y > 2000 && /post-industrial|Spaceports/.test(t) ? '(Speculative) ' : '') + t.replace('{r}', r);
 const MILESTONES = {
   1: 'Farming villages appear around {r}.',
   2: 'Copper-working chiefdoms arise in {r}.',
@@ -111,7 +108,7 @@ export class Chronicle {
     if (lvl <= this.milestone) return;
     for (let k = this.milestone + 1; k <= lvl; k++) {
       if (k <= Math.floor(this.startMax) || !MILESTONES[k]) continue;
-      this.ev(Y, 'tech', milestoneText(MILESTONES[k], this.rname(argmax(snap.tech)), Y));
+      this.ev(Y, 'tech', MILESTONES[k].replace('{r}', this.rname(argmax(snap.tech))));
     }
     this.milestone = lvl;
   }

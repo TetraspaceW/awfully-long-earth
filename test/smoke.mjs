@@ -146,7 +146,7 @@ for (const h of world.tiles.values()) {
   const diff = sa.reduce((d, v, i) => d + Math.abs(v - sb[i]), 0) / sa.length;
   const feds = [...worldPowers(a, 2000).values()].filter((p) => a.polities.get(p.id).macro);
   const span = Math.max(0, ...feds.map((p) => p.tiles.size));
-  console.log(`federations: federated share ${sa.map((v) => v.toFixed(2)).join(' ')}; mean difference between reveal orders ${diff.toFixed(3)}; ${feds.map((p) => `${a.polityName(p.id, 2000)} (${p.tiles.size} worlds)`).join(', ')}`);
+  console.log(`federations: federated share ${sa.map((v) => v.toFixed(2)).join(' ')}; mean difference between reveal orders ${diff.toFixed(3)}; ${feds.map((p) => `${a.polityName(p.id, 2000)} (${p.tiles.size} world${p.tiles.size === 1 ? '' : 's'})`).join(', ')}`);
   assert.ok(Math.min(sa[0], sa[1]) > 0.5, 'sheets inside a federation\'s domain do not join it');
   assert.ok(diff < 0.05, 'reveal order changes how far worlds have federated');
   assert.ok(span >= 2, 'no federation spans several worlds');
