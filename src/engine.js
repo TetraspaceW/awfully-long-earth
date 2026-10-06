@@ -1,0 +1,173 @@
+// BigEarth: the headless engine a game (or the explorer UI) is built on.
+//
+// It owns a World, reveals sheets, answers questions about the map, and emits
+// events when the world changes. It touches no DOM.
+//
+//   const earth = BigEarth.create({ seed: 20000 });
+//   earth.on('reveal', ({ x, y, t }) => ...);
+//   if (earth.canReveal(2, 0)) earth.reveal(2, 0);
+//   earth.cell(1, 0, 120, 60);          // what is at a cell, in 2000 CE
+//   earth.players(2000);                // leading powers
+//   const save = earth.save();          // JSON string; BigEarth.load(save)
+//
+// Events: 'reveal' { x, y, t, tile }, 'load' { world }, '*' (everything).
+
+import { Emitter } from './core/emitter.js';
+import { W } from './core/grid.js';
+import { neighbourPos, posKey } from './core/coords.js';
+import { PRESENT, layerOf } from './core/timeline.js';
+import { eraName } from './core/eras.js';
+import { World } from './world/world.js';
+import { tileStateAt, players, worldPowers, peoplesOn } from './world/query.js';
+import { regionFigures } from './world/economy.js';
+import { buildTerra } from './terra/history.js';
+import { canGenerate, generateTile, regionName } from './history/index.js';
+import { nationProfile } from './lore/profile.js';
+import { BIOME, BIOME_NAMES } from './geo/biomes.js';
+import { cellBiome, cellTemp, seaState } from './geo/cells.js';
+import { climateName } from './geo/climate.js';
+import { eraShift } from './macro/drift.js';
+import { federationAt } from './macro/federations.js';
+import { rasterTile } from './render/raster.js';
+
+// Terra's present-day neighbours, revealed in a new world.
+export const START_RING = [[1, 0], [-1, 0], [0, -1], [0, 1]];
+
+export class BigEarth extends Emitter {
+  /** @param {World} world */
+  constructor(world, { year = PRESENT } = {}) {
+    super();
+    this.world = world;
+    // The moment the map shows by default. Revealing a sheet generates the
+    // millennium ending at (or containing) this year.
+    this.year = year;
+  }
+
+  /** A new world: Terra's record plus, by default, its four neighbours. */
+  static create({ seed = 20000, ring = START_RING, year = PRESENT, warn } = {}) {
+    const w = new World(seed);
+    buildTerra(w, warn);
+    const e = new BigEarth(w, { year });
+    for (const [x, y] of ring) generateTile(w, x, y, e.layer);
+    return e;
+  }
+
+  static load(json, opts) { return new BigEarth(World.deserialize(json), opts); }
+
+  save() { return this.world.serialize(); }
+
+  // Replace the world in place (keeps listeners).
+  adopt(world) {
+    this.world = world;
+    this.emit('load', { world });
+  }
+
+  get seed() { return this.world.seed; }
+
+  // The millennium layer the default year belongs to: the one ending at it.
+  get layer() { return layerOf(this.year - 1); }
+
+  // ------------------------------------------------------------- revealing
+
+  canReveal(x, y, t = this.layer) { return canGenerate(this.world, x, y, t); }
+
+  isRevealed(x, y, t = this.layer) { return this.world.hasTile(x, y, t); }
+
+  reveal(x, y, t = this.layer) {
+    if (!this.canReveal(x, y, t)) return null;
+    const tile = generateTile(this.world, x, y, t);
+    this.emit('reveal', { x, y, t, tile });
+    return tile;
+  }
+
+  // Reveal every revealable neighbour of (x, y), in this order; returns those revealed.
+  revealAround(x, y, t = this.layer, order = ['N', 'E', 'S', 'W']) {
+    const out = [];
+    for (const d of order) {
+      const p = neighbourPos(x, y, d);
+      if (this.reveal(p.x, p.y, t)) out.push(p);
+    }
+    return out;
+  }
+
+  // Bounding box of revealed sheets.
+  bounds() {
+    let x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+    for (const h of this.world.tiles.values()) {
+      x0 = Math.min(x0, h.x); x1 = Math.max(x1, h.x); y0 = Math.min(y0, h.y); y1 = Math.max(y1, h.y);
+    }
+    return { x0, x1, y0, y1 };
+  }
+
+  // -------------------------------------------------------------- queries
+
+  sheet(x, y) { return this.world.geo(x, y); }
+  sheetName(x, y) { return this.world.tileName(x, y); }
+  stateAt(x, y, Y = this.year) { return tileStateAt(this.world, x, y, Y); }
+
+  /** Everything about cell (i, j) of sheet (x, y) in year Y; pass j = undefined to give a cell index k as i. */
+  cell(x, y, i, j, Y = this.year) {
+    const geo = this.sheet(x, y);
+    const k = j === undefined ? i : j * W + i;
+    const biome = cellBiome(geo, k, Y);
+    const out = {
+      x, y, k, biome, biomeName: BIOME_NAMES[biome], temp: cellTemp(geo, k, Y), elev: geo.elev[k],
+      ocean: biome === BIOME.OCEAN, sea: biome === BIOME.OCEAN ? seaState(geo, k, Y) : null,
+      region: geo.region[k], revealed: false,
+    };
+    const st = this.stateAt(x, y, Y);
+    if (!st) return out;
+    out.revealed = true;
+    const r = geo.region[k];
+    if (r < 0) return out;
+    const tech = st.snap.tech[r];
+    const reg = geo.regions[r];
+    Object.assign(out, {
+      regionName: regionName(this.world, geo, r),
+      owner: st.snap.owner[r], culture: st.snap.culture[r], tech, era: eraName(tech),
+      ...regionFigures(geo, reg, tech, Y),
+    });
+    return out;
+  }
+
+  /** Province r of sheet (x, y) and its state in year Y. */
+  province(x, y, r, Y = this.year) {
+    const geo = this.sheet(x, y);
+    const reg = geo.regions[r];
+    if (!reg) return null;
+    const st = this.stateAt(x, y, Y);
+    const base = { x, y, r, name: regionName(this.world, geo, r), region: reg };
+    if (!st) return base;
+    const tech = st.snap.tech[r];
+    return { ...base, owner: st.snap.owner[r], culture: st.snap.culture[r], tech, ...regionFigures(geo, reg, tech, Y) };
+  }
+
+  players(Y = this.year, only = null, n = 10) { return players(this.world, Y, only, n); }
+  powers(Y = this.year, only = null) { return worldPowers(this.world, Y, only); }
+  peoples(x, y, Y = this.year) {
+    const st = this.stateAt(x, y, Y);
+    return st ? peoplesOn(this.world, x, y, st.snap, Y) : [];
+  }
+  profile(pid, Y = this.year) { return nationProfile(this.world, pid, Y); }
+  polity(pid) { return this.world.polities.get(pid); }
+  culture(cid) { return this.world.cultures.get(cid); }
+
+  // Mean warming against Terra and its name, for a sheet.
+  climate(x, y) {
+    const dT = this.world.atlas.climateAt(x + 0.5, y + 0.5);
+    return { dT, name: climateName(dT) };
+  }
+  // Years this sheet's development runs ahead (+) or behind (-) Terra's.
+  drift(x, y, Y = this.year) { return eraShift(this.seed, x + 0.5, y + 0.5, Y); }
+  federation(gx, gy, Y = this.year) { return federationAt(this.seed, gx, gy, Y); }
+
+  /** RGBA pixels of a sheet in a map mode (see render/modes.js), or null if unrevealed. */
+  raster(x, y, mode = 'political', { Y = this.year, focus = 0, out } = {}) {
+    const st = this.stateAt(x, y, Y);
+    if (!st) return null;
+    return rasterTile(this.world, x, y, st.snap, Y, mode, { focus, out });
+  }
+
+  positions() { return [...this.world.positions()]; }
+  key(x, y) { return posKey(x, y); }
+}

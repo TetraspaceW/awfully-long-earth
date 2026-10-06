@@ -2,20 +2,21 @@
 // that make tiles fit together. Run with `npm test`.
 
 import assert from 'node:assert/strict';
-import { World } from '../src/world.js';
-import { buildEarth } from '../src/earth.js';
-import { generateTile, canGenerate } from '../src/sim.js';
-import { getGeo, edgeLinks, neighbourPos } from '../src/geo.js';
-import { players, fmtPop, fmtMoney } from '../src/stats.js';
-import { federationAt, eraShift, effectiveYear, regionPos } from '../src/macro.js';
-import { nationProfile } from '../src/bio.js';
-import { techCap } from '../src/constants.js';
-import { regionCapacity } from '../src/geo.js';
-import { tileKey } from '../src/constants.js';
+import { World } from '../src/world/world.js';
+import { buildTerra } from '../src/terra/history.js';
+import { generateTile, canGenerate } from '../src/history/index.js';
+import { edgeLinks } from '../src/geo/edges.js';
+import { regionCapacity } from '../src/geo/cells.js';
+import { players } from '../src/world/query.js';
+import { fmtPop, fmtMoney } from '../src/core/format.js';
+import { federationAt, eraShift, effectiveYear } from '../src/macro/index.js';
+import { nationProfile } from '../src/lore/profile.js';
+import { techCap } from '../src/core/eras.js';
+import { tileKey, neighbourPos, regionPos } from '../src/core/coords.js';
 
 const warnings = [];
 const world = new World(20000);
-buildEarth(world, (m) => warnings.push(m));
+buildTerra(world, (m) => warnings.push(m));
 assert.deepEqual(warnings, [], `Earth data warnings:\n${warnings.join('\n')}`);
 
 const order = [
@@ -45,7 +46,7 @@ for (const [x, y, t] of order) {
 
 // invariants
 for (const h of world.tiles.values()) {
-  const geo = getGeo(h.x, h.y);
+  const geo = world.geo(h.x, h.y);
   assert.equal(h.snaps.length, 5);
   for (const s of h.snaps) {
     assert.equal(s.owner.length, geo.regions.length);
@@ -83,7 +84,7 @@ for (const t of [-1, -2, -3]) {
 // far enough ahead, technology allows federations spanning several worlds
 {
   const fw = new World(20000);
-  buildEarth(fw);
+  buildTerra(fw);
   const ring = [[1, 0], [-1, 0], [0, -1], [0, 1]];
   for (const [x, y] of ring) generateTile(fw, x, y, 1);
   for (let t = 2; t <= 4; t++) { generateTile(fw, 0, 0, t); for (const [x, y] of ring) generateTile(fw, x, y, t); }
@@ -97,7 +98,7 @@ for (const t of [-1, -2, -3]) {
 // backwards should look alike at the macro scale
 {
   const stats = (w, x, y, t) => {
-    const g = getGeo(x, y), h = w.tile(x, y, t);
+    const g = w.geo(x, y), h = w.tile(x, y, t);
     let S = 0, big = 0, tech = 0;
     for (let k = 0; k < 5; k++) {
       const sn = h.snaps[k], Y = t * 1000 + k * 250;
@@ -119,7 +120,7 @@ for (const t of [-1, -2, -3]) {
   for (const T of [-4, 3]) {
     const acc = { forward: [], direct: [], backward: [] };
     for (const seed of [11, 12, 13]) for (const [x, y] of [[3, 2], [-3, -1]]) {
-      const mk = () => { const w = new World(seed); buildEarth(w); return w; };
+      const mk = () => { const w = new World(seed); buildTerra(w); return w; };
       let w = mk(); generateTile(w, x, y, T - 2); generateTile(w, x, y, T - 1); generateTile(w, x, y, T); acc.forward.push(stats(w, x, y, T));
       w = mk(); generateTile(w, x, y, T); acc.direct.push(stats(w, x, y, T));
       w = mk(); generateTile(w, x, y, T + 2); generateTile(w, x, y, T + 1); generateTile(w, x, y, T); acc.backward.push(stats(w, x, y, T));
@@ -143,7 +144,7 @@ for (const t of [-1, -2, -3]) {
   const own = [0, 0, 0, 0], cul = [0, 0, 0, 0];
   let runs = 0;
   for (const seed of [1, 2, 3]) for (const [x, y, T] of [[3, 2, -3], [-2, 1, 0]]) {
-    const w = new World(seed); buildEarth(w);
+    const w = new World(seed); buildTerra(w);
     generateTile(w, x, y, T - 1); generateTile(w, x, y, T + 1);
     const g = generateTile(w, x, y, T);
     assert.deepEqual([...g.snaps[0].owner], [...w.tile(x, y, T - 1).snaps[4].owner], 'gap tile must start where its past ends');
@@ -182,7 +183,7 @@ for (const t of [-1, -2, -3]) {
 {
   const check = (w) => {
     for (const h of w.tiles.values()) {
-      const g = getGeo(h.x, h.y);
+      const g = w.geo(h.x, h.y);
       for (let k = 0; k < 5; k++) {
         const Y = h.t * 1000 + k * 250;
         let should = 0, are = 0, stray = 0, owned = 0;
@@ -200,7 +201,7 @@ for (const t of [-1, -2, -3]) {
     }
   };
   const a = new World(20000), b = new World(20000);
-  buildEarth(a); buildEarth(b);
+  buildTerra(a); buildTerra(b);
   for (const t of [1, 2, 3, 4, 5]) { generateTile(a, 1, 0, t); generateTile(a, 2, 0, t); }
   for (const t of [1, 2, 3, 4, 5]) generateTile(b, 2, 0, t);   // far sheet first this time
   for (const t of [5, 4, 3, 2, 1]) if (!b.hasTile(1, 0, t)) generateTile(b, 1, 0, t);
@@ -247,7 +248,7 @@ for (const t of [-1, -2, -3]) {
 }
 
 // across Earth's eastern edge, land should mostly continue as land
-const e = getGeo(0, 0), east = getGeo(1, 0);
+const e = world.geo(0, 0), east = world.geo(1, 0);
 console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
 
 // Big Earth is an endless plane: no poles, no wrap, and far sheets generate
@@ -255,10 +256,10 @@ console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
   assert.deepEqual(neighbourPos(0, -4, 'N'), { x: 0, y: -5 }, 'no north pole');
   assert.deepEqual(neighbourPos(4, 0, 'E'), { x: 5, y: 0 }, 'no east-west wrap');
   const far = new World(20000);
-  buildEarth(far);
+  buildTerra(far);
   for (let x = 1; x <= 12; x++) generateTile(far, x, 0, 1);   // a 12-sheet march east
   for (let y = -1; y >= -6; y--) generateTile(far, 12, y, 1); // then north, past the old pole
-  const a = getGeo(5, 0), b = getGeo(-5, 0);
+  const a = far.geo(5, 0), b = far.geo(-5, 0);
   let same = 0;
   for (let k = 0; k < a.elev.length; k++) if (a.elev[k] === b.elev[k]) same++;
   assert.ok(same < a.elev.length / 2, 'sheets 10 apart are no longer the same sheet');

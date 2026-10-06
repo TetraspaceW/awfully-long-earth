@@ -1,7 +1,8 @@
-// Bundles the app into self-contained single HTML files:
+// Bundles the explorer into self-contained single HTML files:
 //   dist/index.html     - a complete page; open it straight from disk
 //   dist/artifact.html  - the same content without the document wrapper (for hosts
 //                         that supply their own <html>/<head>/<body>)
+// The page markup is src/ui/app.html; its <link href="./styles.css"> is inlined.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,12 +10,15 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const ui = path.join(root, 'src/ui');
 const result = await esbuild.build({
-  entryPoints: [path.join(root, 'src/main.js')],
+  entryPoints: [path.join(ui, 'main.js')],
   bundle: true, format: 'iife', minify: true, write: false, target: 'es2020',
 });
 const js = result.outputFiles[0].text.replace(/<\/script/g, '<\\/script');
-const body = fs.readFileSync(path.join(root, 'src/app.html'), 'utf8');
+const css = fs.readFileSync(path.join(ui, 'styles.css'), 'utf8');
+const body = fs.readFileSync(path.join(ui, 'app.html'), 'utf8')
+  .replace('<link rel="stylesheet" href="./styles.css">\n', () => `<style>\n${css}</style>\n`);
 const content = `${body}\n<script>\n${js}</script>\n`;
 
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
