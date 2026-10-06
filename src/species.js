@@ -255,3 +255,85 @@ export function refreshSpecies(world) {
   };
   for (const cu of world.cultures.values()) fix(cu);
 }
+
+// Where each lineage likes to live. Habitability per biome, in the order of
+// geo's BIOME (ocean, ice, tundra, taiga, mountains, desert, steppe, temperate
+// forest, savanna, tropical forest, river valley, hothouse swamp, scorched rock),
+// on the same scale as Terra's humans (geo's HAB), plus how much a coast helps.
+// Ice and scorched rock stay uninhabitable for everyone, so snowball and runaway
+// greenhouse worlds stay empty.
+const HUMAN_HAB = [0, 0, 0.04, 0.15, 0.25, 0.04, 0.45, 1.0, 0.6, 0.55, 1.3, 0.1, 0];
+export const HABITATS = {
+  // generalists: Terra's own pattern
+  human: { hab: HUMAN_HAB, coast: 1, inland: 1 },
+  // cold-adapted: tundra, taiga and steppe; the tropics wear them down
+  cold: { hab: [0, 0, 0.35, 0.65, 0.4, 0, 0.7, 1.0, 0.15, 0.05, 1.1, 0, 0], coast: 1, inland: 1 },
+  // small tropical hominids: forests and savanna, little use for the cold
+  tropical: { hab: [0, 0, 0, 0.04, 0.15, 0.05, 0.35, 0.7, 0.9, 1.0, 1.2, 0.3, 0], coast: 1.1, inland: 0.9 },
+  // water-bound: coasts, river valleys, swamps; inland and dry country is no good
+  aquatic: { hab: [0, 0, 0, 0.1, 0, 0, 0.05, 0.7, 0.2, 0.9, 1.6, 0.8, 0], coast: 1.7, inland: 0.12 },
+  // amphibious: wetlands first, the coast a bonus
+  amphibious: { hab: [0, 0, 0.02, 0.2, 0.05, 0.01, 0.2, 0.8, 0.35, 1.0, 1.5, 1.0, 0], coast: 1.3, inland: 0.6 },
+  // warmth-loving: deserts, savanna and hothouse; the cold is deadly
+  warm: { hab: [0, 0, 0, 0, 0.2, 0.4, 0.55, 0.4, 1.0, 0.9, 1.2, 0.9, 0], coast: 1, inland: 1 },
+  // highland fliers: mountains and forests
+  avian: { hab: [0, 0, 0.08, 0.35, 0.8, 0.05, 0.4, 1.0, 0.6, 0.85, 1.1, 0.3, 0], coast: 1.1, inland: 1 },
+  // forest and swamp dwellers that live off decay and wet soil
+  damp: { hab: [0, 0, 0.05, 0.6, 0.15, 0.01, 0.2, 0.9, 0.4, 1.1, 1.3, 1.0, 0], coast: 1, inland: 1 },
+  // extremophiles: hot, dry and mineral country others avoid
+  extreme: { hab: [0, 0, 0.1, 0.2, 0.6, 0.7, 0.5, 0.4, 0.6, 0.4, 0.7, 1.0, 0], coast: 1, inland: 1 },
+  // mats and films: anywhere damp and warm enough, nowhere outstanding
+  film: { hab: [0, 0, 0.15, 0.35, 0.3, 0.2, 0.45, 0.65, 0.55, 0.7, 0.9, 0.7, 0], coast: 1.2, inland: 0.9 },
+};
+const HABITAT_OF = {
+  human: 'human', archaic: 'human', erectus: 'human', mammal: 'human',
+  neanderthal: 'cold', denisovan: 'cold', floresian: 'tropical', habiline: 'tropical',
+  cetacean: 'aquatic', fish: 'aquatic', mollusc: 'aquatic', radiate: 'aquatic', trichordate: 'aquatic',
+  amphibian: 'amphibious', reptile: 'warm', dinosaur: 'warm', insect: 'warm', arthropod: 'warm',
+  avian: 'avian', eukaryote: 'damp', archaean: 'extreme', prokaryote: 'film',
+};
+// a novel domain picks its own habitat
+const NOVEL_HABITATS = ['cold', 'warm', 'aquatic', 'damp', 'extreme', 'film'];
+
+// The habitat of a people (a culture record, or { species, variant }).
+export function habitatOf(cu) {
+  const id = cu && cu.species ? cu.species : 'human';
+  if (id === 'novel') return NOVEL_HABITATS[hashN(Math.floor((cu.variant || 0) * 4294967296), 'novelhab') % NOVEL_HABITATS.length];
+  return HABITAT_OF[id] || 'human';
+}
+export function habitatName(cu) { return HABITAT_NAMES[habitatOf(cu)]; }
+const HABITAT_NAMES = {
+  human: 'Generalists, much like Terra\'s humans',
+  cold: 'Cold-adapted: tundra, taiga and steppe suit them; the tropics do not',
+  tropical: 'Tropical: forest and savanna, with little use for the cold',
+  aquatic: 'Water-bound: coasts, river valleys and swamps; inland and dry country is empty to them',
+  amphibious: 'Amphibious: wetlands first, and the coast',
+  warm: 'Warmth-loving: deserts, savanna and hothouse swamps; the cold is deadly',
+  avian: 'Highland: mountains and forests',
+  damp: 'Damp-loving: forests and swamps',
+  extreme: 'Extremophiles: hot, dry and mineral country others avoid',
+  film: 'Anywhere damp and warm enough, nowhere outstanding',
+};
+
+// How much more (or less) a province can support of this people than of
+// Terra's humans: its biomes weighed by the people's habitat, over the same
+// weighed by HUMAN_HAB. Land a lineage finds hostile (under HOSTILE of what it
+// would be for humans) it does not settle at all, so its nations keep to the
+// country they like. Cached on the province.
+const HOSTILE = 0.15;
+export function habitatFactor(r, cu) {
+  const h = habitatOf(cu);
+  if (h === 'human') return 1;
+  if (!r.habitat) r.habitat = new Map();
+  let f = r.habitat.get(h);
+  if (f === undefined) {
+    const H = HABITATS[h];
+    let mine = 0, ours = 0;
+    for (let b = 1; b < H.hab.length; b++) { mine += r.biomes[b] * H.hab[b]; ours += r.biomes[b] * HUMAN_HAB[b]; }
+    mine *= r.coastal ? H.coast : H.inland;
+    f = ours > 0 ? mine / ours : 0;
+    if (f < HOSTILE) f = 0;
+    r.habitat.set(h, f);
+  }
+  return f;
+}

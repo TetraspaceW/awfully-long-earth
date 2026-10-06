@@ -22,7 +22,7 @@ export const UNITS = {
   'macro.js':   { uses: ['core'] },
   'species.js': { uses: ['core', 'macro.js'] },
   'geo':        { public: ['geo/index.js'], uses: ['core', 'data'] },
-  'world':      { public: ['world/world.js', 'world/stats.js'], uses: ['core', 'geo', 'names.js', 'data'] },
+  'world':      { public: ['world/world.js', 'world/stats.js'], uses: ['core', 'geo', 'names.js', 'species.js', 'data'] },
   'history':    { public: ['history/index.js'], uses: ['core', 'geo', 'macro.js', 'species.js', 'world', 'names.js'] },
   'terra.js':   { uses: ['core', 'geo', 'world', 'names.js', 'data'] },
   'profile.js': { uses: ['core', 'macro.js', 'species.js', 'world', 'history', 'names.js'] },

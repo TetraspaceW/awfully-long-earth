@@ -316,6 +316,32 @@ console.log(`Earth/east edge land links: ${edgeLinks(e, east, 'E').length}`);
   const top = [...sp].sort((a, b) => b[1] - a[1])[0];
   console.log(`species: a far world's peoples are ${[...sp].map(([k, n]) => `${k} ${n}`).join(', ')}`);
   assert.ok(top && SPECIES_BY_ID.get(top[0]).branch >= 2.5e6, 'a deeply diverged world is not peopled by hominids');
+
+  // species keep to the country they like: a water-bound lineage's states hold
+  // coastal land, a warmth-loving one's shun the tundra
+  const { lineageAt, habitatOf } = await import('../src/species.js');
+  const { climateAt } = await import('../src/geo/index.js');
+  const want = new Set(['aquatic', 'warm']);
+  for (let rad = 300; rad < 5000 && want.size; rad += 41) for (let a = 0; a < 24 && want.size; a++) {
+    const x = Math.round(rad * Math.cos(a / 24 * 2 * Math.PI)), y = Math.round(rad * Math.sin(a / 24 * 2 * Math.PI));
+    const h = habitatOf(lineageAt(far.seed, x + 0.5, y + 0.5));
+    if (!want.has(h) || Math.abs(climateAt(far.seed, x + 0.5, y + 0.5)) > 12 || eraShift(far.seed, x + 0.5, y + 0.5, 2000) < -250000) continue;
+    want.delete(h);
+    const tile = generateTile(far, x, y, 1), geo = far.geo(x, y), snap = tile.snaps[4];
+    let land = 0, coast = 0, held = 0, heldCoast = 0, tundra = 0, heldTundra = 0;
+    for (const r of geo.regions) {
+      if (!r.cellsNow) continue;
+      land++; if (r.coastal) coast++; if (r.biome === 2) tundra++;
+      if (snap.owner[r.id]) { held++; if (r.coastal) heldCoast++; if (r.biome === 2) heldTundra++; }
+    }
+    if (h === 'aquatic') {
+      console.log(`species: aquatic world ${x},${y}: coastal share of land ${(coast / land).toFixed(2)}, of state-held land ${(heldCoast / held).toFixed(2)}`);
+      assert.ok(held && heldCoast / held > coast / land + 0.1, 'water-bound peoples should keep to the coasts');
+    } else {
+      console.log(`species: warm world ${x},${y}: tundra share of land ${(tundra / land).toFixed(2)}, of state-held land ${(heldTundra / Math.max(1, held)).toFixed(2)}`);
+      assert.ok(heldTundra / Math.max(1, held) <= tundra / land, 'warmth-loving peoples should shun the tundra');
+    }
+  }
 }
 
 // round trip

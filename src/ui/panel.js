@@ -128,7 +128,7 @@ function speciesNote(app, x, y) {
   const sp = app.engine.lineage(x, y, app.Y);
   if (!sp) return '';
   const lead = sp.notYet ? 'The lineage that will become sapient here' : 'The sapient lineage here';
-  return `<p class="climate">${lead}: <b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>). ${esc(sp.blurb)}</p>`;
+  return `<p class="climate">${lead}: <b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>). ${esc(sp.blurb)} <i>${esc(sp.habitat)}.</i></p>`;
 }
 
 // Spans of years, from "1,250" to "3.4 million" to "2.1 × 10^15".
@@ -247,7 +247,8 @@ export function nationCard(app, pid) {
     ${b.peoples.length ? `<h3>Peoples</h3><ul class="peoples">${b.peoples.map((c) => `
       <li><span class="sw" style="background:${cultureCss(world, c.id)}"></span><span class="pn">${esc(c.name)}${speciesTag(app, c.id)}${c.ruling ? ' <em>ruling people</em>' : c.from ? ` <em>from ${esc(c.from)}</em>` : ''}</span><span class="num">${Math.round(100 * c.share)}%</span></li>`).join('')}</ul>` : ''}
     ${b.species.length && !(b.species.length === 1 && b.species[0].id === 'human') ? `<h3>Who they are</h3>
-      <p class="prose">${b.species.map((sp) => `${b.species.length > 1 ? `${Math.round(100 * sp.share)}% ` : ''}<b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>)`).join(', ')}. ${esc(b.species[0].blurb)}</p>` : ''}
+      <p class="prose">${b.species.map((sp) => `${b.species.length > 1 ? `${Math.round(100 * sp.share)}% ` : ''}<b>${esc(sp.plural)}</b> (<i>${esc(sp.sci)}</i>)`).join(', ')}. ${esc(b.species[0].blurb)}</p>
+      <p class="fine">Where they thrive: ${esc(b.species[0].habitat)}.</p>` : ''}
     <h3>Backstory</h3>
     <p class="prose">${esc(b.origin)}${b.parent ? ` It grew out of ${link(b.parent)}.` : ''}</p>
     ${also.length ? `<p class="fine">Also known as ${also.map(esc).join(', ')}.</p>` : ''}

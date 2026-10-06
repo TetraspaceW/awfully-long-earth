@@ -6,6 +6,7 @@
 import { interpTable } from '../core/util.js';
 import { SNAPS, SNAP_YEARS } from '../core/frame.js';
 import { regionCapacity, terraSheet } from '../geo/index.js';
+import { habitatFactor } from '../species.js';
 import { earthTechAt } from '../data/earth-history.js';
 
 // Population, economy and power, shared by the simulator and the UI.
@@ -34,8 +35,10 @@ export function popScale() {
   return K;
 }
 
-export function regionPop(r, tech, Y) {
-  return popScale() * regionCapacity(r, Y) * density(tech);
+// People in province r at technology `tech` in year Y; `cu`, the people living
+// there (a culture record), sets how well the land suits them (species.js).
+export function regionPop(r, tech, Y, cu = null) {
+  return popScale() * regionCapacity(r, Y) * habitatFactor(r, cu) * density(tech);
 }
 
 // GDP per head in present-day dollars.
@@ -44,14 +47,14 @@ export function perCapita(tech) {
 }
 
 // Military and economic weight.
-export function regionPower(r, tech, Y) {
-  return regionPop(r, tech, Y) * perCapita(tech) / 1000;
+export function regionPower(r, tech, Y, cu = null) {
+  return regionPop(r, tech, Y, cu) * perCapita(tech) / 1000;
 }
 
 // Population and GDP of one province of a sheet. Terra in 2000 CE uses the
 // real Natural Earth figures.
-export function regionFigures(geo, r, tech, Y, real = geo.earth && Y === 2000) {
-  const pop = real ? r.realPop : regionPop(r, tech, Y);
+export function regionFigures(geo, r, tech, Y, real = geo.earth && Y === 2000, cu = null) {
+  const pop = real ? r.realPop : regionPop(r, tech, Y, cu);
   return { pop, gdp: real ? r.realGdp : pop * perCapita(tech) };
 }
 
@@ -109,7 +112,7 @@ function tileRows(world, x, y, st, Y) {
     let a = by.get(pid);
     if (!a) { a = [pid, 0, 0, 0]; by.set(pid, a); }
     const tech = st.snap.tech[r.id];
-    const pop = real ? r.realPop : regionPop(r, tech, Y);
+    const pop = real ? r.realPop : regionPop(r, tech, Y, world.cultures.get(st.snap.culture[r.id]));
     a[1] += pop;
     a[2] += real ? r.realGdp : pop * perCapita(tech);
     a[3]++;
@@ -151,7 +154,7 @@ export function peoplesOn(world, x, y, snap, Y) {
   for (const r of geo.regions) {
     const c = snap.culture[r.id];
     if (!c) continue;
-    pops.set(c, (pops.get(c) || 0) + regionPop(r, snap.tech[r.id], Y));
+    pops.set(c, (pops.get(c) || 0) + regionPop(r, snap.tech[r.id], Y, world.cultures.get(c)));
   }
   return [...pops.entries()].sort((a, b) => b[1] - a[1]);
 }

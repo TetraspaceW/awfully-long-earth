@@ -21,7 +21,7 @@ import { canGenerate, generateTile, regionName } from './history/index.js';
 import { nationProfile } from './profile.js';
 import { BIOME, BIOME_NAMES, cellBiome, cellTemp, seaState, climateName, SEA_STATES } from './geo/index.js';
 import { divergence, eraShift, federationAt } from './macro.js';
-import { cultureSpecies, lineageAt, refreshSpecies, speciesInfo } from './species.js';
+import { cultureSpecies, habitatName, lineageAt, refreshSpecies, speciesInfo } from './species.js';
 import { rasterTile } from './render.js';
 
 // Terra's present-day neighbours, revealed in a new world.
@@ -125,7 +125,7 @@ export class BigEarth extends Emitter {
     Object.assign(out, {
       regionName: regionName(this.world, geo, r),
       owner: st.snap.owner[r], culture: st.snap.culture[r], tech, era: eraName(tech),
-      ...regionFigures(geo, reg, tech, Y),
+      ...regionFigures(geo, reg, tech, Y, undefined, this.world.cultures.get(st.snap.culture[r])),
     });
     return out;
   }
@@ -139,7 +139,7 @@ export class BigEarth extends Emitter {
     const base = { x, y, r, name: regionName(this.world, geo, r), region: reg };
     if (!st) return base;
     const tech = st.snap.tech[r];
-    return { ...base, owner: st.snap.owner[r], culture: st.snap.culture[r], tech, ...regionFigures(geo, reg, tech, Y) };
+    return { ...base, owner: st.snap.owner[r], culture: st.snap.culture[r], tech, ...regionFigures(geo, reg, tech, Y, undefined, this.world.cultures.get(st.snap.culture[r])) };
   }
 
   players(Y = this.year, only = null, n = 10) { return players(this.world, Y, only, n); }
@@ -177,16 +177,16 @@ export class BigEarth extends Emitter {
       for (const c of st.snap.culture) {
         if (!c) continue;
         const s = this.speciesOf(c);
-        count.set(s.name, [s, (count.get(s.name)?.[1] || 0) + 1]);
+        count.set(s.name, [s, (count.get(s.name)?.[1] || 0) + 1, habitatName(this.world.cultures.get(c))]);
       }
       const top = [...count.values()].sort((a, b) => b[1] - a[1])[0];
-      if (top) sp = top[0];
+      if (top) sp = { ...top[0], habitat: top[2] };
     }
     if (!sp) {
       const { dT } = this.climate(x, y);
       if (dT <= -35 || dT >= 120) return null;
       const lin = lineageAt(this.seed, x + 0.5, y + 0.5);
-      sp = speciesInfo(lin.species, lin.pod, lin.variant);
+      sp = { ...speciesInfo(lin.species, lin.pod, lin.variant), habitat: habitatName(lin) };
     }
     if (sp.id === 'human') return null;
     return { ...sp, notYet: Y + this.drift(x, y, Y) < -300000 };

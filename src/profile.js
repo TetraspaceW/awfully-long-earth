@@ -6,7 +6,7 @@ import { Rng, hashN } from './core/random.js';
 import { regionName } from './history/index.js';
 import { placeName, randomPhon, rulerName, shortWord } from './names.js';
 import { federationAt, federationWorlds } from './macro.js';
-import { cultureSpecies } from './species.js';
+import { cultureSpecies, habitatName } from './species.js';
 import { perCapita, regionPop, tileStateAt } from './world/stats.js';
 
 
@@ -30,7 +30,7 @@ function footprint(world, pid) {
       for (const r of geo.regions) {
         if (sn.owner[r.id] !== pid) continue;
         prov++;
-        pop += geo.earth && Y === 2000 && h.fixed ? r.realPop : regionPop(r, sn.tech[r.id], Y);
+        pop += geo.earth && Y === 2000 && h.fixed ? r.realPop : regionPop(r, sn.tech[r.id], Y, world.cultures.get(sn.culture[r.id]));
       }
       if (!prov) return;
       const key = `${Y}|${h.x},${h.y}`;
@@ -60,7 +60,7 @@ function present(world, pid, Y) {
     for (const r of geo.regions) {
       if (st.snap.owner[r.id] !== pid) continue;
       const tech = st.snap.tech[r.id];
-      const pop = real ? r.realPop : regionPop(r, tech, Y);
+      const pop = real ? r.realPop : regionPop(r, tech, Y, world.cultures.get(st.snap.culture[r.id]));
       out.prov++; out.pop += pop; out.gdp += real ? r.realGdp : pop * perCapita(tech);
       out.techSum += tech * pop;
       out.worlds.add(pos);
@@ -254,8 +254,9 @@ export const TYPE_LABEL = {
 function speciesMix(world, cultures, total) {
   const by = new Map();
   for (const [c, pop] of cultures) {
-    const sp = cultureSpecies(world.cultures.get(c));
-    const a = by.get(sp.name) || { ...sp, share: 0 };
+    const cu = world.cultures.get(c);
+    const sp = cultureSpecies(cu);
+    const a = by.get(sp.name) || { ...sp, habitat: habitatName(cu), share: 0 };
     a.share += pop / (total || 1);
     by.set(sp.name, a);
   }

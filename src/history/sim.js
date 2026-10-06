@@ -30,7 +30,7 @@ import { effectiveYear, humanPresence, federationAt, federationWorlds, developme
 import { regionPower } from '../world/stats.js';
 import { cloneSnap } from '../world/world.js';
 import { coreName, familyName, namePolity, newCulture, ofName, regionName } from './naming.js';
-import { lineageAt } from '../species.js';
+import { habitatFactor, lineageAt } from '../species.js';
 
 // beyond Terra's present the future is speculation; far from Terra, a sheet can
 // reach those levels in what is Terra's distant past
@@ -116,14 +116,15 @@ export class TileSim {
     this.seenForeign = new Set();
     this.seenCultures = new Set();
     this.peak = new Map();
-    let hab = 0;
-    for (const r of this.R) if (regionCapacity(r, 2000) >= 0.3) hab++;
-    this.sizeFactor = Math.max(0.05, hab / 200);
     this.devMemo = new Map();
     this.effMemo = new Map();
     this.regMemo = new Map();
     // each province's position in sheet units, where the macro layer is read
     this.rpos = this.R.map((reg) => regionPos(x, y, reg));
+    // how much land the local lineage can use, relative to a typical sheet
+    let hab = 0;
+    for (let r = 0; r < this.n; r++) if (regionCapacity(this.R[r], 2000) * habitatFactor(this.R[r], this.lineage(r)) >= 0.3) hab++;
+    this.sizeFactor = Math.max(0.05, hab / 200);
     this.ctl = { emerge: 1, succ: 0.85, consol: 1, decay: 1, Sstar: 0.6 };
   }
 
@@ -142,7 +143,13 @@ export class TileSim {
   isHome(pid) { const p = this.pol(pid); return p && p.capital && p.capital.x === this.x && p.capital.y === this.y; }
 
   // no one lives where the local lineage has not yet become sapient
-  cap(r, Y) { return regionCapacity(this.R[r], Y) * humanPresence(this.Er(r, Y)); }
+  // and the land suits each lineage differently (species.js habitats): the
+  // people living there, or the local lineage where no one does yet
+  cap(r, Y) { return regionCapacity(this.R[r], Y) * habitatFactor(this.R[r], this.people(r)) * humanPresence(this.Er(r, Y)); }
+  people(r) {
+    const c = this.s && this.s.culture[r];
+    return c ? this.world.cultures.get(c) : this.lineage(r);
+  }
 
   // the sapient lineage where province r lies, and how far back history parted there
   lineage(r) { return lineageAt(this.world.seed, ...this.rpos[r]); }
@@ -200,7 +207,7 @@ export class TileSim {
   // the era's ceiling here, including the sheet's golden or dark age
   techCeil(r, Y) { const m = this.perRegion(Y); return techCap(m.E[r]) * this.habFactor(r, Y) * m.dev[r]; }
 
-  power(r, Y) { return regionPower(this.R[r], this.s.tech[r], Y); }
+  power(r, Y) { return regionPower(this.R[r], this.s.tech[r], Y, this.people(r)); }
 
   // neighbour tile state at the snapshot nearest to step s
   nbSnap(nb, s) { return nb.hist.snaps[clamp(Math.round(s / STEPS_PER_SNAP), 0, 4)]; }
@@ -215,7 +222,7 @@ export class TileSim {
           const o = snap.owner[reg.id];
           if (!o) continue;
           const e = m.get(o) || { p: 0, c: 0 };
-          e.p += regionPower(reg, snap.tech[reg.id], Y); e.c++;
+          e.p += regionPower(reg, snap.tech[reg.id], Y, this.world.cultures.get(snap.culture[reg.id])); e.c++;
           m.set(o, e);
         }
         nb.pow[k] = m;
